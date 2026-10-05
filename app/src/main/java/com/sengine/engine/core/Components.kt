@@ -8,6 +8,7 @@ object ComponentRegistry {
         "Rigidbody2D" to { Rigidbody2D() },
         "Collider2D" to { Collider2D() },
         "Script" to { ScriptComponent() },
+        "Material2D" to { Material2D() },
         "ParticleEmitter" to { ParticleEmitter() },
         "AudioSource" to { AudioSource() },
     )
@@ -59,12 +60,32 @@ class Camera2D : Component() {
     var background = 0xFF1B2533.toInt()
     var follow = ""
     var smoothing = 5f
+    var zoom = 1f
+    var shake = 0f
+    var limitLeft = false
+    var limitRight = false
+    var limitTop = false
+    var limitBottom = false
+    var limitX1 = -10f
+    var limitX2 = 10f
+    var limitY1 = -10f
+    var limitY2 = 10f
 
     override fun props() = listOf(
         Prop.F("Size", { size }, { size = it.coerceAtLeast(0.1f) }),
         Prop.Color("Background", { background }, { background = it }),
         Prop.S("Follow Target", { follow }, { follow = it }),
         Prop.F("Follow Smoothing", { smoothing }, { smoothing = it.coerceAtLeast(0f) }),
+        Prop.F("Zoom", { zoom }, { zoom = it.coerceAtLeast(0.1f) }, 0.1f),
+        Prop.F("Shake", { shake }, { shake = it.coerceAtLeast(0f) }, 0.1f),
+        Prop.B("Limit Left", { limitLeft }, { limitLeft = it }),
+        Prop.B("Limit Right", { limitRight }, { limitRight = it }),
+        Prop.B("Limit Top", { limitTop }, { limitTop = it }),
+        Prop.B("Limit Bottom", { limitBottom }, { limitBottom = it }),
+        Prop.F("Limit X1", { limitX1 }, { limitX1 = it }),
+        Prop.F("Limit X2", { limitX2 }, { limitX2 = it }),
+        Prop.F("Limit Y1", { limitY1 }, { limitY1 = it }),
+        Prop.F("Limit Y2", { limitY2 }, { limitY2 = it }),
     )
 }
 
@@ -132,6 +153,18 @@ class ScriptComponent : Component() {
     )
 }
 
+class Material2D : Component() {
+    override val type = "Material2D"
+    var shader = "default"
+    var parameters = ""
+    var blendMode = 0 // 0 Normal, 1 Additive, 2 Multiply, 3 Screen
+    override fun props() = listOf(
+        Prop.S("Shader", { shader }, { shader = it }),
+        Prop.S("Parameters", { parameters }, { parameters = it }, multiline = true),
+        Prop.Choice("Blend Mode", listOf("Normal", "Additive", "Multiply", "Screen"), { blendMode }, { blendMode = it }),
+    )
+}
+
 class ParticleEmitter : Component() {
     override val type = "ParticleEmitter"
     var emitting = true
@@ -180,11 +213,19 @@ class AudioSource : Component() {
     var playOnStart = true
     var loop = false
     var volume = 1f
+    var pitch = 1f
+    var pan = 0f
+    var spatial = false
+    var bus = "Master"
 
     override fun props() = listOf(
         Prop.Asset("Clip", AssetKind.SOUND, { clip }, { clip = it }),
         Prop.B("Play On Start", { playOnStart }, { playOnStart = it }),
         Prop.B("Loop", { loop }, { loop = it }),
         Prop.F("Volume", { volume }, { volume = it.coerceIn(0f, 1f) }, 0.05f),
+        Prop.F("Pitch", { pitch }, { pitch = it.coerceIn(0.1f, 3f) }, 0.05f),
+        Prop.F("Pan", { pan }, { pan = it.coerceIn(-1f, 1f) }, 0.05f),
+        Prop.B("Spatial", { spatial }, { spatial = it }),
+        Prop.S("Bus", { bus }, { bus = it }),
     )
 }
