@@ -27,12 +27,7 @@ jobs:
         run: chmod +x gradlew
       
       - name: Build Debug APK
-        run: |
-          set +e
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1
-          EXIT_CODE=$?
-          echo "Build exit code: $EXIT_CODE"
-          exit $EXIT_CODE
+        run: ./gradlew assembleDebug --no-daemon
       
       - name: Upload Debug APK
         if: success()
