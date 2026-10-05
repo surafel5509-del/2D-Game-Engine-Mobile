@@ -1,15 +1,5 @@
 package com.sengine.engine.core
 
-import com.sengine.engine.physics.CharacterBody
-import com.sengine.engine.physics.VehicleBody
-import com.sengine.engine.physics.WheelComponent
-import com.sengine.engine.physics.Ragdoll
-import com.sengine.engine.animation.SpriteAnimator
-
-/**
- * Registry of all component types available in the engine.
- * New components must be registered here to be serializable and editable.
- */
 object ComponentRegistry {
     val types: LinkedHashMap<String, () -> Component> = linkedMapOf(
         "SpriteRenderer" to { SpriteRenderer() },
@@ -20,29 +10,10 @@ object ComponentRegistry {
         "Script" to { ScriptComponent() },
         "ParticleEmitter" to { ParticleEmitter() },
         "AudioSource" to { AudioSource() },
-        // Professional-grade components
-        "CharacterBody" to { CharacterBody() },
-        "VehicleBody" to { VehicleBody() },
-        "Wheel" to { WheelComponent() },
-        "Ragdoll" to { Ragdoll() },
-        "TileMap" to { TileMap() },
-        "Terrain" to { Terrain() },
-        "SpriteAnimator" to { SpriteAnimator() },
-        "JointComponent" to { JointComponent() },
     )
 
     fun create(type: String): Component? = types[type]?.invoke()
-
-    fun register(typeName: String, factory: () -> Component) {
-        types[typeName] = factory
-    }
-
-    fun isKnownType(type: String): Boolean = type in types
 }
-
-// ============================================================================
-// Rendering Components
-// ============================================================================
 
 class SpriteRenderer : Component() {
     override val type = "SpriteRenderer"
@@ -51,7 +22,6 @@ class SpriteRenderer : Component() {
     var texture = ""
     var flipX = false
     var flipY = false
-    var sortingOrder = 0
 
     override fun props() = listOf(
         Prop.Choice("Shape", SHAPES, { shape }, { shape = it }),
@@ -83,44 +53,20 @@ class TextRenderer : Component() {
     )
 }
 
-// ============================================================================
-// Camera
-// ============================================================================
-
 class Camera2D : Component() {
     override val type = "Camera"
     var size = 5f
     var background = 0xFF1B2533.toInt()
     var follow = ""
     var smoothing = 5f
-    var zoomMin = 1f
-    var zoomMax = 20f
-    var shakeEnabled = true
-    var boundsEnabled = false
-    var boundsMinX = -100f
-    var boundsMinY = -100f
-    var boundsMaxX = 100f
-    var boundsMaxY = 100f
 
     override fun props() = listOf(
         Prop.F("Size", { size }, { size = it.coerceAtLeast(0.1f) }),
         Prop.Color("Background", { background }, { background = it }),
         Prop.S("Follow Target", { follow }, { follow = it }),
         Prop.F("Follow Smoothing", { smoothing }, { smoothing = it.coerceAtLeast(0f) }),
-        Prop.F("Zoom Min", { zoomMin }, { zoomMin = it.coerceAtLeast(0.1f) }),
-        Prop.F("Zoom Max", { zoomMax }, { zoomMax = it.coerceAtLeast(0.1f) }),
-        Prop.B("Shake Enabled", { shakeEnabled }, { shakeEnabled = it }),
-        Prop.B("Use Bounds", { boundsEnabled }, { boundsEnabled = it }),
-        Prop.F("Bounds Min X", { boundsMinX }, { boundsMinX = it }),
-        Prop.F("Bounds Min Y", { boundsMinY }, { boundsMinY = it }),
-        Prop.F("Bounds Max X", { boundsMaxX }, { boundsMaxX = it }),
-        Prop.F("Bounds Max Y", { boundsMaxY }, { boundsMaxY = it }),
     )
 }
-
-// ============================================================================
-// Physics Components
-// ============================================================================
 
 class Rigidbody2D : Component() {
     override val type = "Rigidbody2D"
@@ -128,20 +74,14 @@ class Rigidbody2D : Component() {
     var mass = 1f
     var gravityScale = 1f
     var drag = 0f
-    var angularDrag = 0.05f
     var bounciness = 0f
     var friction = 0.4f
     var startVx = 0f
     var startVy = 0f
-    var startAngularVelocity = 0f
-    var fixedRotation = false
-    var collisionLayer = 0
-    var collisionMask = -1 // -1 = all layers
 
     // runtime
     var vx = 0f
     var vy = 0f
-    var angularVelocity = 0f
     var grounded = false
 
     override fun props() = listOf(
@@ -149,113 +89,37 @@ class Rigidbody2D : Component() {
         Prop.F("Mass", { mass }, { mass = it.coerceAtLeast(0.001f) }),
         Prop.F("Gravity Scale", { gravityScale }, { gravityScale = it }),
         Prop.F("Linear Drag", { drag }, { drag = it.coerceAtLeast(0f) }),
-        Prop.F("Angular Drag", { angularDrag }, { angularDrag = it.coerceAtLeast(0f) }),
         Prop.F("Bounciness", { bounciness }, { bounciness = it.coerceIn(0f, 1f) }, 0.05f),
         Prop.F("Friction", { friction }, { friction = it.coerceIn(0f, 1f) }, 0.05f),
-        Prop.F("Start Velocity X", { startVx }, { startVx = it }),
-        Prop.F("Start Velocity Y", { startVy }, { startVy = it }),
-        Prop.F("Start Angular Vel", { startAngularVelocity }, { startAngularVelocity = it }),
-        Prop.B("Fixed Rotation", { fixedRotation }, { fixedRotation = it }),
-        Prop.I("Collision Layer", { collisionLayer }, { collisionLayer = it.coerceIn(0, 31) }),
-        Prop.I("Collision Mask", { collisionMask }, { collisionMask = it }),
+        Prop.F("Velocity X", { startVx }, { startVx = it }),
+        Prop.F("Velocity Y", { startVy }, { startVy = it }),
     )
 
     override fun resetRuntime() {
-        vx = startVx; vy = startVy
-        angularVelocity = startAngularVelocity
-        grounded = false
-    }
-
-    /** Apply a force at the center of mass. */
-    fun addForce(fx: Float, fy: Float) {
-        if (bodyType != 0) return
-        vx += fx / mass
-        vy += fy / mass
-    }
-
-    /** Apply an impulse (instant velocity change). */
-    fun addImpulse(ix: Float, iy: Float) {
-        if (bodyType != 0) return
-        vx += ix / mass
-        vy += iy / mass
-    }
-
-    /** Apply torque (angular impulse). */
-    fun addTorque(torque: Float) {
-        if (bodyType != 0 || fixedRotation) return
-        angularVelocity += torque / mass
+        vx = startVx; vy = startVy; grounded = false
     }
 }
 
 class Collider2D : Component() {
     override val type = "Collider2D"
-    var shape = 0 // 0 Box, 1 Circle, 2 Capsule
+    var shape = 0 // 0 Box, 1 Circle
     var width = 1f
     var height = 1f
     var radius = 0.5f
     var offsetX = 0f
     var offsetY = 0f
     var isTrigger = false
-    var collisionLayer = 0
-    var density = 1f
 
     override fun props() = listOf(
-        Prop.Choice("Shape", listOf("Box", "Circle", "Capsule"), { shape }, { shape = it }),
+        Prop.Choice("Shape", listOf("Box", "Circle"), { shape }, { shape = it }),
         Prop.F("Width", { width }, { width = it.coerceAtLeast(0.01f) }),
         Prop.F("Height", { height }, { height = it.coerceAtLeast(0.01f) }),
         Prop.F("Radius", { radius }, { radius = it.coerceAtLeast(0.01f) }),
         Prop.F("Offset X", { offsetX }, { offsetX = it }),
         Prop.F("Offset Y", { offsetY }, { offsetY = it }),
         Prop.B("Is Trigger", { isTrigger }, { isTrigger = it }),
-        Prop.I("Collision Layer", { collisionLayer }, { collisionLayer = it.coerceIn(0, 31) }),
-        Prop.F("Density", { density }, { density = it.coerceAtLeast(0.001f) }),
     )
 }
-
-class JointComponent : Component() {
-    override val type = "JointComponent"
-    var jointType = 0 // 0=Distance, 1=Hinge, 2=Spring, 3=Wheel, 4=Rope
-    var targetName = ""
-    var anchorAx = 0f
-    var anchorAy = 0f
-    var anchorBx = 0f
-    var anchorBy = 0f
-    var distance = 1f
-    var stiffness = 0f
-    var damping = 0.5f
-    var enableLimit = false
-    var lowerAngle = -45f
-    var upperAngle = 45f
-    var enableMotor = false
-    var motorSpeed = 0f
-    var motorTorque = 0f
-    var suspensionStiffness = 100f
-    var suspensionDamping = 5f
-    var suspensionRestLength = 1f
-    var wheelRadius = 0.5f
-    var maxLength = 2f
-    var breakable = false
-    var breakForce = 1000f
-
-    override fun props() = listOf(
-        Prop.Choice("Joint Type", listOf("Distance", "Hinge", "Spring", "Wheel", "Rope"), { jointType }, { jointType = it }),
-        Prop.S("Target", { targetName }, { targetName = it }),
-        Prop.F("Anchor A X", { anchorAx }, { anchorAx = it }),
-        Prop.F("Anchor A Y", { anchorAy }, { anchorAy = it }),
-        Prop.F("Anchor B X", { anchorBx }, { anchorBx = it }),
-        Prop.F("Anchor B Y", { anchorBy }, { anchorBy = it }),
-        Prop.F("Distance", { distance }, { distance = it.coerceAtLeast(0.01f) }),
-        Prop.F("Stiffness", { stiffness }, { stiffness = it.coerceAtLeast(0f) }),
-        Prop.F("Damping", { damping }, { damping = it.coerceAtLeast(0f) }),
-        Prop.F("Max Length", { maxLength }, { maxLength = it.coerceAtLeast(0.01f) }),
-        Prop.B("Breakable", { breakable }, { breakable = it }),
-        Prop.F("Break Force", { breakForce }, { breakForce = it.coerceAtLeast(0f) }),
-    )
-}
-
-// ============================================================================
-// Scripting
-// ============================================================================
 
 class ScriptComponent : Component() {
     override val type = "Script"
@@ -267,10 +131,6 @@ class ScriptComponent : Component() {
         Prop.S("Params", { params }, { params = it }),
     )
 }
-
-// ============================================================================
-// Particles
-// ============================================================================
 
 class ParticleEmitter : Component() {
     override val type = "ParticleEmitter"
@@ -286,68 +146,13 @@ class ParticleEmitter : Component() {
     var endColor = 0x00FF3D00
     var gravity = 0f
     var maxParticles = 300
-    var burstCount = 0
-    var rotationSpeed = 0f
-    var turbulence = 0f
-    var noise = 0f
-    var randomness = 0f
-    var shape = Shape.SQUARE
-
-    enum class Shape { SQUARE, CIRCLE, TRIANGLE, LINE, RING, CONE }
 
     // runtime
     val particles = ArrayList<Particle>()
     var accumulator = 0f
     var pendingBurst = 0
 
-    class Particle(
-        var x: Float, var y: Float,
-        var vx: Float, var vy: Float,
-        var age: Float, var life: Float,
-        var rotation: Float = 0f,
-        var rotSpeed: Float = 0f,
-        var startSize: Float = 1f,
-        var turbulenceOffset: Float = 0f
-    )
-
-    data class Preset(
-        val name: String = "",
-        val rate: Float = 30f,
-        val burstCount: Int = 0,
-        val lifetime: Float = 1.2f,
-        val speed: Float = 3f,
-        val direction: Float = 90f,
-        val spread: Float = 30f,
-        val startSize: Float = 0.25f,
-        val endSize: Float = 0.02f,
-        val startColor: Int = 0xFFFFC940.toInt(),
-        val endColor: Int = 0x00FF3D00.toInt(),
-        val gravity: Float = 0f,
-        val turbulence: Float = 0f,
-        val noise: Float = 0f,
-        val randomness: Float = 0f,
-        val rotationSpeed: Float = 0f,
-        val shape: Shape = Shape.SQUARE
-    )
-
-    fun applyPreset(preset: Preset) {
-        rate = preset.rate
-        burstCount = preset.burstCount
-        lifetime = preset.lifetime
-        speed = preset.speed
-        direction = preset.direction
-        spread = preset.spread
-        startSize = preset.startSize
-        endSize = preset.endSize
-        startColor = preset.startColor
-        endColor = preset.endColor
-        gravity = preset.gravity
-        turbulence = preset.turbulence
-        noise = preset.noise
-        randomness = preset.randomness
-        rotationSpeed = preset.rotationSpeed
-        shape = preset.shape
-    }
+    class Particle(var x: Float, var y: Float, var vx: Float, var vy: Float, var age: Float, var life: Float)
 
     override fun props() = listOf(
         Prop.B("Emitting", { emitting }, { emitting = it }),
@@ -361,13 +166,7 @@ class ParticleEmitter : Component() {
         Prop.Color("Start Color", { startColor }, { startColor = it }),
         Prop.Color("End Color", { endColor }, { endColor = it }),
         Prop.F("Gravity", { gravity }, { gravity = it }),
-        Prop.F("Rotation Speed", { rotationSpeed }, { rotationSpeed = it }),
-        Prop.F("Turbulence", { turbulence }, { turbulence = it.coerceIn(0f, 5f) }),
-        Prop.F("Noise", { noise }, { noise = it.coerceIn(0f, 5f) }),
-        Prop.F("Randomness", { randomness }, { randomness = it.coerceIn(0f, 1f) }),
-        Prop.Choice("Shape", listOf("Square", "Circle", "Triangle", "Line", "Ring", "Cone"), { shape.ordinal }, { shape = Shape.values()[it] }),
-        Prop.I("Max Particles", { maxParticles }, { maxParticles = it.coerceIn(1, 10000) }),
-        Prop.I("Burst Count", { burstCount }, { burstCount = it.coerceIn(0, 1000) }),
+        Prop.I("Max Particles", { maxParticles }, { maxParticles = it.coerceIn(1, 5000) }),
     )
 
     override fun resetRuntime() {
@@ -375,29 +174,17 @@ class ParticleEmitter : Component() {
     }
 }
 
-// ============================================================================
-// Audio
-// ============================================================================
-
 class AudioSource : Component() {
     override val type = "AudioSource"
     var clip = ""
     var playOnStart = true
     var loop = false
     var volume = 1f
-    var pitch = 1f
-    var spatialBlend = 0f
-    var minDistance = 1f
-    var maxDistance = 50f
 
     override fun props() = listOf(
         Prop.Asset("Clip", AssetKind.SOUND, { clip }, { clip = it }),
         Prop.B("Play On Start", { playOnStart }, { playOnStart = it }),
         Prop.B("Loop", { loop }, { loop = it }),
         Prop.F("Volume", { volume }, { volume = it.coerceIn(0f, 1f) }, 0.05f),
-        Prop.F("Pitch", { pitch }, { pitch = it.coerceAtLeast(0.1f) }, 0.05f),
-        Prop.F("Spatial Blend", { spatialBlend }, { spatialBlend = it.coerceIn(0f, 1f) }),
-        Prop.F("Min Distance", { minDistance }, { minDistance = it.coerceAtLeast(0f) }),
-        Prop.F("Max Distance", { maxDistance }, { maxDistance = it.coerceAtLeast(0.1f) }),
     )
 }
