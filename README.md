@@ -1,129 +1,228 @@
-# S Engine
+# S Engine 2D — Professional Mobile Game Engine
 
-**S Engine** is a 2D game engine **and** full visual editor that runs entirely on an Android phone or tablet – think "a small Unity in your pocket". Create a project, build scenes with a hierarchy / inspector / gizmos, write JavaScript behaviours in the built-in code editor, press **Play** to test immediately, then run your game full-screen.
+A powerful, production-ready 2D game engine for Android built entirely in Kotlin. Create commercial-quality mobile games including platformers, racing games, physics puzzles, shooters, and more — all from your phone or tablet.
 
-> Written from scratch in Kotlin. OpenGL ES 2.0 renderer, custom physics, Mozilla Rhino JavaScript runtime. No NDK, no external game frameworks.
+## 🎮 Engine Features
 
----
+### Advanced 2D Physics
+- **Rigid bodies** — Dynamic, kinematic, and static body types
+- **Collision detection** — Box, circle, and capsule colliders with offset support
+- **Impulse-based resolution** — Gravity, friction, restitution, drag
+- **Collision layers & masks** — 32-bit layer system for selective collision
+- **Joints** — Distance, hinge, spring, wheel, and rope joints
+- **Raycasting** — Point queries, ray casts, overlap circle/area queries
+- **Character body** — Grounded detection, coyote time, jump buffering, wall-slide, double-jump, step-up
+- **Vehicle physics** — Wheel suspension, torque, steering, terrain interaction
+- **Ragdoll** — Physics-based character death/fall simulation
 
-## Features
+### Rendering & Animation
+- **OpenGL ES 2.0 renderer** — Batched sprite rendering with shape & texture support
+- **Sprite-sheet animation** — Multi-animation state machine with frame events
+- **Particle system** — Configurable emitter with gravity, color/size over lifetime, rotation
+- **TileMap system** — Multi-layer grid maps with collision generation and auto-tiling
+- **Terrain system** — Procedural heightmap terrain (Hill Climb Racing style)
+- **Camera system** — Follow with smoothing, dead zone, look-ahead, shake, zoom, boundary limits
+- **Sorting layers** — Per-object draw order
 
-| Area | What you get |
-|---|---|
-| **Project manager** | Create from templates, open, play, rename, duplicate, delete, export / import projects as `.zip` |
-| **Scene editor** | Viewport with grid, pan (drag) & pinch-zoom, tap-to-select, **Move / Rotate / Scale gizmos** with axis handles, snapping, frame selected |
-| **Hierarchy** | Parent/child tree, collapse, visibility toggle, rename / duplicate / delete / reorder / create child / unparent |
-| **Inspector** | Edit name, tag, sorting order, parent, transform (drag labels to scrub values), every component property, color picker, asset pickers, add / remove / reorder / reset components |
-| **Undo / Redo** | Snapshot-based history for every edit |
-| **Play mode** | Play / Pause / Step frame inside the editor; scene is restored when you stop (like Unity) |
-| **Rendering** | Squares, circles, triangles, textured sprites (PNG/JPG/WebP) with flip, text, particles, sorting order, camera background |
-| **Physics 2D** | Dynamic / Kinematic / Static rigidbodies, box & circle colliders, gravity, bounciness, friction, drag, triggers, collision & trigger callbacks, `grounded` detection |
-| **Scripting** | JavaScript (ES6 subset via Rhino) with `start`, `update(dt)`, `onCollision`, `onTrigger`, `onTap`… plus timers, spawning, messaging |
-| **Code editor** | Syntax highlighting, auto-indent, undo/redo, quick-symbol keyboard row, built-in API reference |
-| **Assets** | Import images and sounds from the device, create scripts, preview / assign / attach from the Assets panel |
-| **Audio** | `AudioSource` component + `audio.play()` / `audio.beep()` |
-| **Input** | On-screen joystick + A/B buttons, touch position / taps in world space, hardware keyboard & gamepad (WASD / arrows / Space / Enter) |
-| **Scenes** | Multiple scenes per project, start scene, `scene.load("Level2")` |
-| **Player** | Full-screen runtime ("Build & Run") with landscape / portrait setting |
+### Scripting
+- **JavaScript (Rhino)** — Write game logic in JavaScript
+- **Rich API** — Transform, physics, input, audio, scene, camera, signals, save/load
+- **Event callbacks** — `start()`, `update(dt)`, `onCollision(other)`, `onTrigger(other)`, `onTap()`, `onDestroy()`
+- **Signal/Event system** — Global and object-level named signals for decoupled communication
+- **Timers** — `after(seconds, fn)`, `every(seconds, fn)`
+- **Math utilities** — `random()`, `clamp()`, `lerp()`, `distanceTo()`, `normalize()`, `reflect()`, etc.
+- **Physics queries** — `physics.raycast()`, `physics.overlapCircle()`, `physics.overlapArea()`
 
-### Built-in components
-`SpriteRenderer`, `TextRenderer`, `Camera` (size, background, follow target with smoothing), `Rigidbody2D`, `Collider2D`, `Script`, `ParticleEmitter`, `AudioSource`.
+### Audio
+- **SoundPool-based** — Low-latency SFX playback with 12+ simultaneous streams
+- **Per-source control** — Volume, pitch, looping, spatial blend
+- **Music support** — WAV, OGG, MP3, M4A formats
 
-### Templates
-* **Empty 2D** – camera + square
-* **Platformer Demo** – run, jump, moving platform, coins with particle bursts, score UI
-* **Space Shooter** – spawning enemies, bullets, explosions, score, game over
-* **Physics Sandbox** – tap to drop bouncy balls and crates onto a pyramid
+### Input System
+- **Touch** — On-screen touch with world-coordinate conversion
+- **Virtual joystick** — Configurable floating joystick for mobile controls
+- **Keyboard** — WASD, arrow keys, space, enter
+- **Game controller** — D-pad, analog stick, A/B buttons
+- **Input mapping** — Unified axis/button abstraction
 
----
+### In-Game UI
+- **UI Canvas** — Screen-space overlay rendering
+- **Button, Label, ProgressBar, Slider, Image, VirtualJoystick** — Built-in UI elements
+- **Anchoring** — 9-point anchor system for responsive layouts
+- **Signals** — Click events, value changes
 
-## Scripting example
+### Scene & Architecture
+- **Scene/Node/Component** — Entity-component architecture with hierarchy
+- **Signals/Events** — Decoupled communication between systems
+- **Object pooling** — Eliminate GC pressure with pre-allocated object pools
+- **Save/Load system** — Full scene state persistence with key-value game data
+- **Checkpoint system** — Automatic save at designated points
+- **Resource manager** — Asset caching, async loading, reference counting
 
-```js
-// Player.js  – params on the Script component: "speed=6, jump=11"
+### Debugging & Profiling
+- **Profiler** — Frame timing, draw calls, physics stats, memory usage
+- **Debug console** — In-game command console with custom commands
+- **Debug overlay** — Real-time FPS, object count, physics info
+- **Physics debugger** — Visualize colliders, joints, raycasts
+- **Engine signals** — Built-in events for all major engine occurrences
+
+### Visual Editor
+- **Scene Tree** — Hierarchical object browser
+- **Inspector** — Component property editing with live preview
+- **2D Viewport** — Pan, zoom, grid, snap-to-grid
+- **Transform tools** — Move, rotate, scale with gizmos
+- **Animation timeline** — Visual keyframe editing
+- **Asset manager** — Import images, scripts, sounds
+- **Project management** — Create, duplicate, export/import projects
+
+## 🎯 Game Templates
+
+| Template | Description |
+|----------|-------------|
+| **Empty 2D** | Camera + square. Start from scratch. |
+| **Platformer Demo** | Run, jump, collect coins. Joystick + A button. |
+| **Advanced Platformer** | Double-jump, wall-slide, enemies, moving platforms, HUD. |
+| **Space Shooter** | Top-down shooter with spawning, triggers, score. |
+| **Physics Sandbox** | Tap to drop bouncy balls and boxes. |
+| **Hill Climb Vehicle** | Drive a vehicle over hilly terrain with physics. |
+| **Physics Puzzle** | Drag-and-drop puzzle with joints and objectives. |
+
+## 🏗 Architecture
+
+```
+com.sengine.engine/
+├── core/          Scene, GameObject, Component, SignalBus, TileMap, Terrain, CameraSystem, ObjectPool
+├── physics/       PhysicsWorld, Joints (Distance/Hinge/Spring/Wheel/Rope), Raycaster, CharacterBody, VehiclePhysics, Ragdoll
+├── render/        Renderer2D, SceneRenderer, View2D, TextureCache, EditorState
+├── animation/     SpriteAnimator, AnimationStateMachine
+├── script/        ScriptSystem (Rhino JS), API bindings
+├── ui/            UICanvas, UIButton, UILabel, UIProgressBar, UISlider, UIVirtualJoystick
+├── resource/      ResourceManager, TextureAtlasManager, PrefabManager
+├── save/          SaveSystem, CheckpointSystem
+├── debug/         Profiler, DebugConsole, DebugOverlay
+├── math/          Affine transform, Vector2D
+├── AudioSystem    SoundPool-based audio
+├── Input          Multi-input abstraction
+└── Engine         Main game loop & system integration
+```
+
+## 📱 Building
+
+```bash
+./gradlew assembleDebug
+```
+
+The APK installs directly on any Android device. No computer needed to create or play games.
+
+## 📜 Scripting Example
+
+```javascript
+// Player controller with double-jump and wall-jump
+var speed = 6;
+var jumpForce = 12;
 var coins = 0;
 
+function start() {
+    log("Player ready!");
+}
+
 function update(dt) {
-    self.vx = input.axisX * speed;              // joystick / A-D keys
-    if (input.aDown && self.grounded) {         // A button / Space
-        self.vy = jump;
-        audio.beep();
+    // Movement
+    self.vx = input.axisX * speed;
+    if (input.axisX > 0.1) self.flipX = false;
+    else if (input.axisX < -0.1) self.flipX = true;
+
+    // Jump (CharacterBody handles double-jump, coyote time, etc.)
+    if (input.aDown && self.grounded) {
+        self.vy = jumpForce;
     }
-    if (self.y < -12) scene.reload();
+
+    // Fell off the world
+    if (self.y < -15) scene.reload();
 }
 
 function onTrigger(other) {
     if (other.tag == "Coin") {
         coins++;
-        var fx = scene.spawn("CoinFX", other.worldX, other.worldY);
-        fx.burst(24);
-        after(1.5, function () { fx.destroy(); });
+        scene.find("ScoreText").text = "★ " + coins;
+        audio.beep();
         other.destroy();
-        scene.find("ScoreText").text = "Coins: " + coins;
+    }
+}
+
+function onCollision(other) {
+    if (other.tag == "Enemy" && self.vy < 0) {
+        // Stomp!
+        self.vy = 10;
+        other.destroy();
     }
 }
 ```
 
-### API summary
+## 🔧 Professional Features
 
-* **Lifecycle:** `start()`, `update(dt)`, `onCollision(other)`, `onTrigger(other)`, `onTriggerExit(other)`, `onTap()`, `onDestroy()`, `onStop()`
-* **self / transform:** `name tag active order x y rotation scaleX scaleY worldX worldY vx vy grounded color visible flipX text size`, `setPosition() move() rotate() addForce() setVelocity() destroy() child() parent distanceTo() overlaps() send() burst() setEmitting() setTexture() hasComponent() setComponentEnabled()`
-* **input:** `axisX axisY a b aDown bDown touching tapped touchX touchY`
-* **scene:** `find(name) findAll(tag) count(tag) spawn(name, x, y) load(name) reload() camera gravityX gravityY`
-* **time:** `time.time time.frame time.fps` — **audio:** `play(file) beep() stopAll()`
-* **helpers:** `log() warn() error() after(sec, fn) every(sec, fn) random() randomInt() clamp() lerp()`
+### Collision Layers
+```javascript
+// Set layer via component properties
+// Layer 0 = default, layers 1-31 for custom grouping
+// Mask controls which layers this body collides with
+```
 
-Inactive objects make great **prefab templates** – `scene.spawn("Enemy", x, y)` clones them and activates the copy.
+### Raycasting
+```javascript
+function update(dt) {
+    var hit = physics.raycast(self.x, self.y, 0, -1, 10);
+    if (hit) {
+        log("Hit " + hit.gameObject.name + " at distance " + hit.distance);
+    }
+}
+```
+
+### Signals
+```javascript
+// Global events
+signals.emit1("score_changed", newScore);
+signals.connect("score_changed", function(score) { ... });
+
+// Object events
+function start() {
+    on("custom_event", myHandler);
+}
+```
+
+### Save/Load
+```javascript
+function update(dt) {
+    if (input.tapped) {
+        saveGame("highScore", coins);
+        scene.save(0); // Full scene snapshot
+    }
+}
+```
+
+### Camera Control
+```javascript
+function update(dt) {
+    // Shake on explosion
+    cameraShake(0.5, 0.3);
+    // Zoom for dramatic effect
+    cameraZoom(8);
+}
+```
+
+### Object Pooling
+```javascript
+// Pre-register pool
+// Then in scripts:
+var bullet = spawnPooled("Bullet", self.x, self.y + 1);
+// Later:
+releasePooled(bullet);
+```
+
+## 📄 License
+
+This project is open source. See LICENSE file for details.
 
 ---
 
-## Download
-
-Every push is built by GitHub Actions. Grab the APK from:
-
-* **Releases → "S Engine – latest build"** → `SEngine.apk`, or
-* **Actions → latest "Build S Engine APK" run → Artifacts → `SEngine-debug-apk`**
-
-Enable "Install unknown apps" for your browser / file manager, then open the APK.
-
-## Building
-
-Requirements: JDK 17 and the Android SDK (API 34). Android Studio Hedgehog or newer works out of the box.
-
-```bash
-./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
-```
-
-Every push is also built by GitHub Actions (`.github/workflows/android.yml`); download the APK from the run's **Artifacts** section.
-
-Minimum Android version: 8.0 (API 26). Requires OpenGL ES 2.0.
-
-## Project layout
-
-```
-app/src/main/java/com/sengine/
-├── engine/
-│   ├── Engine.kt            main loop, play/pause/stop, camera follow, particles
-│   ├── Input.kt, AudioSystem.kt
-│   ├── core/                GameObject, Component, Prop system, components, Scene + JSON serializer
-│   ├── math/Affine.kt       2D transforms
-│   ├── physics/             impulse-based 2D physics
-│   ├── render/              GLES2 renderer, textures/text, editor grid & gizmos
-│   └── script/              Rhino JavaScript runtime + script API
-├── project/                 project storage, zip import/export, templates
-└── ui/                      Projects screen, Editor (hierarchy, inspector, viewport, assets, console),
-                             Script editor, full-screen Player, joystick, color picker
-```
-
-Projects are stored in app-private storage as plain JSON scenes plus an `assets/` folder:
-
-```
-<project>/project.json
-<project>/scenes/Main.scene.json
-<project>/assets/Player.js, hero.png, jump.wav …
-```
-
-## License
-
-MIT
+**S Engine 2D v2.0** — Built for mobile, designed for professionals.

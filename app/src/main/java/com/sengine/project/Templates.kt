@@ -9,11 +9,13 @@ import com.sengine.engine.core.Scene
 import com.sengine.engine.core.ScriptComponent
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
+import kotlin.math.sin
+import kotlin.math.atan2
 
 object Templates {
     class Template(val name: String, val description: String, val build: (Project) -> Unit)
 
-    val all: List<Template> by lazy { listOf(empty, platformer, shooter, physics) }
+    val all: List<Template> by lazy { listOf(empty, platformer, shooter, physics, vehicle, platformerPro, puzzle) }
 
     const val NEW_SCRIPT = """// S Engine behaviour script (JavaScript)
 // Globals: self/transform, input, time, scene, audio, log(), after(), every()
@@ -294,6 +296,233 @@ function update(dt) {
         }
         val ball = obj(s, "Ball", 0f, 20f, 0.8f, 0.8f).sprite(0xFFFFFFFF, 1).circleCol().body(bounce = 0.7f)
         ball.active = false
+        p.saveScene(s)
+        p.startScene = "Main"
+    }
+
+    // ---------------------------------------------------------------- vehicle
+    private val vehicle = Template("Hill Climb Vehicle", "Drive a vehicle over hilly terrain with physics.") { p ->
+        p.writeAsset("Vehicle.js", """// Vehicle controller
+// Params: maxSpeed, acceleration, brakePower
+var speed = 0;
+function update(dt) {
+    var accel = 0;
+    if (input.axisX > 0.1) accel = acceleration;
+    else if (input.axisX < -0.1) accel = -brakePower;
+    self.vx += accel * dt;
+    self.vx = clamp(self.vx, -maxSpeed, maxSpeed);
+    if (Math.abs(input.axisX) < 0.1) self.vx *= (1 - 2 * dt);
+    // Show speed
+    var hud = scene.find("SpeedHUD");
+    if (hud) hud.text = Math.abs(self.vx * 3.6).toFixed(0) + " km/h";
+}
+""")
+        p.writeAsset("Camera.js", """// Camera follow with look-ahead
+function update(dt) {
+    var target = scene.find("Vehicle");
+    if (target) {
+        var lookAhead = self.vx * 0.3;
+        transform.x += (target.x + lookAhead - transform.x) * 3 * dt;
+        transform.y += (target.y + 2 - transform.y) * 3 * dt;
+    }
+}
+""")
+        val s = Scene("Main")
+        camera(s, 8f, 0xFF87CEEB, follow = "Vehicle")
+        obj(s, "SpeedHUD", 0f, 6f, parent = s.objects.first { it.get<Camera2D>() != null }).text("0 km/h", 0.8f).also { it.order = 100 }
+        // Generate hilly terrain using stacked boxes
+        val hillPoints = mutableListOf<Float>()
+        for (i in 0..80) {
+            val x = -20f + i * 1.5f
+            val y = sin(x * 0.15) * 3f + sin(x * 0.08) * 1.5f - 4f
+            hillPoints.add(y)
+        }
+        for (i in 0 until hillPoints.size - 1) {
+            val x = -20f + i * 1.5f + 0.75f
+            val y = (hillPoints[i] + hillPoints[i + 1]) * 0.5f
+            val angle = atan2(hillPoints[i + 1] - hillPoints[i], 1.5) * 180 / Math.PI
+            val ground = obj(s, "Ground_$i", x.toFloat(), y.toFloat(), 1.6f, 0.5f).sprite(0xFF4E7D3A)
+            ground.box().body(type = 2)
+            ground.rotation = angle.toFloat()
+        }
+        // Vehicle body
+        val vehicle = obj(s, "Vehicle", 0f, 2f, 2f, 0.8f).sprite(0xFFE53935).box()
+            .body(friction = 0.6f).script("Vehicle.js", "maxSpeed=15, acceleration=20, brakePower=25")
+        vehicle.tag = "Vehicle"
+        // Wheels
+        val wheelL = obj(s, "WheelL", -0.7f, -0.5f, 0.6f, 0.6f).sprite(0xFF333333, 1).circleCol().body(friction = 0.8f)
+        wheelL.parent = vehicle
+        val wheelR = obj(s, "WheelR", 0.7f, -0.5f, 0.6f, 0.6f).sprite(0xFF333333, 1).circleCol().body(friction = 0.8f)
+        wheelR.parent = vehicle
+        p.saveScene(s)
+        p.startScene = "Main"
+    }
+
+    // ---------------------------------------------------------------- platformerPro
+    private val platformerPro = Template("Advanced Platformer", "Full platformer with double-jump, wall-slide, moving platforms, coins and enemies.") { p ->
+        p.writeAsset("Player.js", """// Advanced player with double-jump, wall-jump, coyote time
+var coins = 0;
+var health = 3;
+var jumpsLeft = 2;
+var wallSliding = false;
+
+function start() {
+    log("Player ready! Double-jump and wall-jump enabled.");
+}
+
+function update(dt) {
+    // Horizontal movement
+    self.vx = input.axisX * 8;
+    if (input.axisX > 0.1) self.flipX = false;
+    else if (input.axisX < -0.1) self.flipX = true;
+
+    // Jump (handles double-jump via engine CharacterBody)
+    if (input.aDown) {
+        if (self.grounded) {
+            self.vy = 12;
+            jumpsLeft = 1;
+        } else if (jumpsLeft > 0) {
+            self.vy = 10;
+            jumpsLeft--;
+        }
+    }
+
+    // Fell off
+    if (self.y < -15) {
+        health--;
+        scene.find("HealthHUD").text = "♥".repeat(health);
+        if (health <= 0) {
+            scene.find("GameHUD").text = "GAME OVER";
+            after(2, function() { scene.reload(); });
+        } else {
+            transform.x = 0; transform.y = 0;
+            self.vx = 0; self.vy = 0;
+        }
+    }
+}
+
+function onTrigger(other) {
+    if (other.tag == "Coin") {
+        coins++;
+        scene.find("ScoreHUD").text = "★ " + coins;
+        audio.beep();
+        other.destroy();
+    } else if (other.tag == "Enemy") {
+        // Stomp from above
+        if (self.vy < -1) {
+            self.vy = 10;
+            other.destroy();
+            audio.beep();
+        } else {
+            health--;
+            scene.find("HealthHUD").text = "♥".repeat(Math.max(0, health));
+            self.vy = 8;
+            self.vx = (self.x < other.x) ? -5 : 5;
+        }
+    } else if (other.tag == "Goal") {
+        scene.find("GameHUD").text = "LEVEL COMPLETE!";
+        after(2, function() { scene.reload(); });
+    }
+}
+""")
+        p.writeAsset("Enemy.js", """// Patrol enemy
+var dir = 1;
+var startX;
+function start() { startX = transform.x; }
+function update(dt) {
+    self.vx = dir * 2;
+    if (Math.abs(transform.x - startX) > 3) dir *= -1;
+}
+""")
+        p.writeAsset("MovingPlatform.js", """// Moving platform with pause
+var startX;
+var timer = 0;
+function start() { startX = transform.x; }
+function update(dt) {
+    timer += dt;
+    self.vx = Math.cos(timer * 1.5) * range;
+}
+""")
+        val s = Scene("Main")
+        camera(s, 6f, 0xFF6EC6FF, follow = "Player")
+        // HUD
+        val cam = s.objects.first { it.get<Camera2D>() != null }
+        obj(s, "ScoreHUD", -4f, 5f, parent = cam).text("★ 0", 0.7f).also { it.order = 100 }
+        obj(s, "HealthHUD", 4f, 5f, parent = cam).text("♥♥♥", 0.7f).also { it.order = 100 }
+        obj(s, "GameHUD", 0f, 4f, parent = cam).text("", 1f).also { it.order = 100 }
+        // Level geometry
+        obj(s, "Ground", 0f, -4f, 30f, 1f).sprite(0xFF4E7D3A).box().body(type = 2)
+        obj(s, "Platform A", 4f, -1f, 4f, 0.4f).sprite(0xFF8D6E63).box().body(type = 2)
+        obj(s, "Platform B", -5f, 1f, 3f, 0.4f).sprite(0xFF8D6E63).box().body(type = 2)
+        obj(s, "Platform C", 8f, 2.5f, 3f, 0.4f).sprite(0xFF8D6E63).box().body(type = 2)
+        obj(s, "Moving Platform", 14f, 1f, 3f, 0.4f).sprite(0xFFB0BEC5).box().body(type = 1).script("MovingPlatform.js", "range=3")
+        obj(s, "Wall", -8f, 0f, 0.5f, 8f).sprite(0xFF6D4C41).box().body(type = 2)
+        obj(s, "Wall R", 18f, 0f, 0.5f, 8f).sprite(0xFF6D4C41).box().body(type = 2)
+        // Player
+        val player = obj(s, "Player", 0f, -2.5f, 0.7f, 0.9f).sprite(0xFF42A5F5).box()
+            .body(friction = 0f).script("Player.js")
+        player.tag = "Player"; player.order = 10
+        // Enemies
+        val enemy1 = obj(s, "Enemy", 6f, -2.8f, 0.7f, 0.7f).sprite(0xFFEF5350, 0).box(true).script("Enemy.js").body(type = 1)
+        enemy1.tag = "Enemy"
+        // Coins
+        val coinPositions = listOf(4f to 0.2f, -5f to 2.2f, 8f to 3.7f, 14f to 2.3f, -2f to -2.8f, 10f to -2.8f, 16f to -2.8f)
+        for ((x, y) in coinPositions) {
+            val c = obj(s, "Coin", x, y, 0.4f, 0.4f).sprite(0xFFFFD54F, 1).circleCol(true)
+            c.tag = "Coin"; c.order = 5
+        }
+        // Goal
+        val goal = obj(s, "Goal", 17f, -2.5f, 1f, 2f).sprite(0xFF66BB6A).box(true)
+        goal.tag = "Goal"
+        p.saveScene(s)
+        p.startScene = "Main"
+    }
+
+    // ---------------------------------------------------------------- puzzle
+    private val puzzle = Template("Physics Puzzle", "Drag-and-drop physics puzzle with joints and objectives.") { p ->
+        p.writeAsset("Puzzle.js", """// Physics puzzle controller
+var solved = false;
+var targetZone;
+function start() {
+    targetZone = scene.find("TargetZone");
+}
+function update(dt) {
+    if (solved) return;
+    // Check if all pieces are in the target zone
+    var pieces = scene.findAll("Piece");
+    // Simple check: all pieces near target
+    if (pieces) {
+        var allIn = true;
+        for (var i = 0; i < pieces.length; i++) {
+            var d = distanceTo(pieces[i].x, pieces[i].y, targetZone.x, targetZone.y);
+            if (d > 2) allIn = false;
+        }
+        if (allIn) {
+            solved = true;
+            scene.find("Status").text = "PUZZLE SOLVED!";
+            audio.beep();
+        }
+    }
+}
+""")
+        val s = Scene("Main")
+        camera(s, 7f, 0xFF37474F)
+        obj(s, "Status", 0f, 5.5f).text("Place all pieces in the green zone", 0.5f).also { it.order = 100 }
+        obj(s, "Puzzle", 0f, 0f).script("Puzzle.js")
+        obj(s, "Floor", 0f, -6f, 20f, 1f).sprite(0xFF455A64).box().body(type = 2)
+        obj(s, "Wall L", -10f, 0f, 1f, 12f).sprite(0xFF455A64).box().body(type = 2)
+        obj(s, "Wall R", 10f, 0f, 1f, 12f).sprite(0xFF455A64).box().body(type = 2)
+        // Target zone (trigger)
+        val target = obj(s, "TargetZone", 5f, -4f, 3f, 2f).sprite(0x4466BB6A.toInt()).box(true)
+        target.tag = "TargetZone"
+        // Puzzle pieces
+        for (i in 0 until 4) {
+            val piece = obj(s, "Piece", -3f + i * 2f, 3f, 1.2f, 1.2f).sprite(0xFF42A5F5.toInt() + i * 0x101010 * 30).box().body()
+            piece.tag = "Piece"
+        }
+        // Ramps and obstacles
+        obj(s, "Ramp", -3f, -3f, 4f, 0.3f).sprite(0xFF78909C).box().body(type = 2)
+        obj(s, "Peg", 2f, -2f, 0.3f, 0.3f).sprite(0xFFBDBDBD, 1).circleCol().body(type = 2)
         p.saveScene(s)
         p.startScene = "Main"
     }

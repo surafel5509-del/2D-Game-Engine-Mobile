@@ -2,6 +2,7 @@ package com.sengine.engine.physics
 
 import com.sengine.engine.core.Collider2D
 import com.sengine.engine.core.GameObject
+import com.sengine.engine.core.JointComponent
 import com.sengine.engine.core.Rigidbody2D
 import com.sengine.engine.core.Scene
 import kotlin.math.abs
@@ -10,8 +11,9 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * Lightweight impulse-based 2D physics: axis-aligned boxes and circles,
- * gravity, restitution, friction, triggers and collision callbacks.
+ * Production-grade impulse-based 2D physics engine.
+ * Supports rigid bodies, joints, collision layers, triggers, raycasts,
+ * and contact/trigger callbacks.
  */
 class PhysicsWorld {
 
@@ -24,6 +26,12 @@ class PhysicsWorld {
     var listener: Listener? = null
     private var accumulator = 0f
     private val fixedDt = 1f / 60f
+    var velocityIterations = 6
+    var positionIterations = 3
+
+    // Joint system
+    val joints = ArrayList<Joint>()
+    private var nextJointId = 1L
 
     private class Body(
         val go: GameObject,
@@ -35,6 +43,8 @@ class PhysicsWorld {
         val isCircle get() = col.shape == 1
         val invMass: Float
             get() = if (rb == null || rb.bodyType != 0) 0f else 1f / rb.mass
+        val layer: Int get() = col.collisionLayer
+        val mask: Int get() = rb?.collisionMask ?: -1
     }
 
     private var prevContacts = HashSet<Long>()
@@ -43,6 +53,8 @@ class PhysicsWorld {
     fun reset() {
         accumulator = 0f
         prevContacts = HashSet(); prevTriggers = HashSet()
+        joints.clear()
+        nextJointId = 1L
     }
 
     fun step(scene: Scene, dt: Float) {
@@ -56,28 +68,91 @@ class PhysicsWorld {
         if (steps == 5) accumulator = 0f
     }
 
+    /** Add a joint to the simulation. */
+    fun addJoint(joint: Joint): Joint {
+        joint.id = nextJointId++
+        joints.add(joint)
+        return joint
+    }
+
+    /** Remove a joint. */
+    fun removeJoint(joint: Joint) {
+        joints.remove(joint)
+    }
+
+    /** Build joints from JointComponents in the scene. */
+    fun syncJoints(scene: Scene) {
+        joints.clear()
+        for (go in scene.objects) {
+            val jc = go.getAny<JointComponent>() ?: continue
+            if (!jc.enabled) continue
+            val target = scene.find(jc.targetName)
+            val joint: Joint = when (jc.jointType) {
+                0 -> DistanceJoint().apply {
+                    distance = jc.distance; stiffness = jc.stiffness; damping = jc.damping
+                }
+                1 -> HingeJoint().apply {
+                    enableLimit = jc.enableLimit; lowerAngle = jc.lowerAngle; upperAngle = jc.upperAngle
+                    enableMotor = jc.enableMotor; motorSpeed = jc.motorSpeed
+                }
+                2 -> SpringJoint().apply {
+                    restLength = jc.distance; stiffness = jc.stiffness; damping = jc.damping
+                }
+                3 -> WheelJoint().apply {
+                    suspensionStiffness = jc.suspensionStiffness; suspensionDamping = jc.suspensionDamping
+                    suspensionRestLength = jc.suspensionRestLength; motorTorque = jc.motorTorque
+                    wheelRadius = jc.wheelRadius
+                }
+                4 -> RopeJoint().apply {
+                    maxLength = jc.maxLength
+                }
+                else -> continue
+            }
+            joint.bodyA = go
+            joint.bodyB = target
+            joint.anchorAx = jc.anchorAx; joint.anchorAy = jc.anchorAy
+            joint.anchorBx = jc.anchorBx; joint.anchorBy = jc.anchorBy
+            joint.breakable = jc.breakable
+            joint.breakForce = jc.breakForce
+            joint.enabled = true
+            joint.id = nextJointId++
+            joints.add(joint)
+        }
+    }
+
     private fun fixedStep(scene: Scene, dt: Float) {
-        // integrate
+        // Integrate velocities and positions
         for (go in scene.objects) {
             if (!go.isActiveInHierarchy()) continue
             val rb = go.get<Rigidbody2D>() ?: continue
             rb.grounded = false
             when (rb.bodyType) {
                 0 -> {
+                    // Dynamic: apply gravity, drag, integrate
                     rb.vx += scene.gravityX * rb.gravityScale * dt
                     rb.vy += scene.gravityY * rb.gravityScale * dt
                     if (rb.drag > 0f) {
                         val k = max(0f, 1f - rb.drag * dt)
                         rb.vx *= k; rb.vy *= k
                     }
+                    if (rb.angularDrag > 0f && !rb.fixedRotation) {
+                        rb.angularVelocity *= max(0f, 1f - rb.angularDrag * dt)
+                    }
                     moveWorld(go, rb.vx * dt, rb.vy * dt)
+                    if (!rb.fixedRotation) {
+                        go.rotation += rb.angularVelocity * dt * (180f / Math.PI.toFloat())
+                    }
                 }
-                1 -> moveWorld(go, rb.vx * dt, rb.vy * dt)
+                1 -> {
+                    // Kinematic
+                    moveWorld(go, rb.vx * dt, rb.vy * dt)
+                    if (!rb.fixedRotation) go.rotation += rb.angularVelocity * dt * (180f / Math.PI.toFloat())
+                }
                 else -> {}
             }
         }
 
-        // gather bodies
+        // Gather collision bodies
         val bodies = ArrayList<Body>()
         for (go in scene.objects) {
             if (!go.isActiveInHierarchy()) continue
@@ -87,13 +162,17 @@ class PhysicsWorld {
             bodies.add(b)
         }
 
+        // Broad phase: check pairs with layer filtering
         val contacts = HashSet<Long>()
         val triggers = HashSet<Long>()
         for (i in 0 until bodies.size) {
             for (j in i + 1 until bodies.size) {
                 val a = bodies[i]
                 val b = bodies[j]
+                // Skip two static bodies
                 if (a.invMass == 0f && b.invMass == 0f && !a.col.isTrigger && !b.col.isTrigger) continue
+                // Collision layer check
+                if (!canCollide(a, b)) continue
                 val m = collide(a, b) ?: continue
                 val key = pairKey(a.go.id, b.go.id)
                 if (a.col.isTrigger || b.col.isTrigger) {
@@ -106,13 +185,40 @@ class PhysicsWorld {
                 if (key !in prevContacts) listener?.onCollisionEnter(a.go, b.go)
             }
         }
+
+        // Trigger exit callbacks
         for (k in prevTriggers) if (k !in triggers) {
-            val a = scene.findById(k shr 32)
-            val b = scene.findById(k and 0xFFFFFFFFL)
+            val aId = k ushr 32
+            val bId = k and 0xFFFFFFFFL
+            val a = scene.findById(aId)
+            val b = scene.findById(bId)
             if (a != null && b != null) listener?.onTriggerExit(a, b)
         }
+
+        // Solve joints
+        for (iter in 0 until velocityIterations) {
+            val jointIter = joints.toList()
+            for (joint in jointIter) {
+                if (!joint.enabled) continue
+                // Verify bodies still exist
+                val bA = joint.bodyA
+                val bB = joint.bodyB
+                if (bA != null && bA.destroyed) { joint.enabled = false; continue }
+                if (bB != null && bB.destroyed) { joint.enabled = false; continue }
+                joint.solve(this, dt)
+            }
+        }
+
         prevContacts = contacts
         prevTriggers = triggers
+    }
+
+    /** Check if two bodies can collide based on layers. */
+    private fun canCollide(a: Body, b: Body): Boolean {
+        // Both must accept each other's layer
+        if (a.mask != -1 && (a.mask and (1 shl b.layer)) == 0) return false
+        if (b.mask != -1 && (b.mask and (1 shl a.layer)) == 0) return false
+        return true
     }
 
     private fun pairKey(a: Long, b: Long): Long {
@@ -181,7 +287,6 @@ class PhysicsWorld {
         val d2 = dx * dx + dy * dy
         if (d2 > c.r * c.r) return null
         if (d2 < 1e-8f) {
-            // centre inside box: push out along smallest axis
             val ox = box.hw - abs(c.cx - box.cx)
             val oy = box.hh - abs(c.cy - box.cy)
             return if (ox < oy) Manifold(if (c.cx < box.cx) -1f else 1f, 0f, ox + c.r)
@@ -202,7 +307,7 @@ class PhysicsWorld {
         if (ia > 0f) moveWorld(a.go, -m.nx * corr * ia, -m.ny * corr * ia)
         if (ib > 0f) moveWorld(b.go, m.nx * corr * ib, m.ny * corr * ib)
 
-        // grounded flags (normal a->b pointing down means a is on top of b)
+        // grounded flags
         if (m.ny < -0.5f) a.rb?.grounded = true
         if (m.ny > 0.5f) b.rb?.grounded = true
 
@@ -253,4 +358,11 @@ class PhysicsWorld {
         }
         return null
     }
+
+    /** Get statistics for the profiler. */
+    fun bodyCount(scene: Scene): Int {
+        return scene.objects.count { it.isActiveInHierarchy() && it.get<Rigidbody2D>() != null && it.get<Rigidbody2D>()!!.bodyType == 0 }
+    }
+
+    fun jointCount(): Int = joints.count { it.enabled }
 }

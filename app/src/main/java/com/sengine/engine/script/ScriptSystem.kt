@@ -14,6 +14,9 @@ import org.mozilla.javascript.ScriptableObject
 /**
  * JavaScript behaviour runtime backed by Mozilla Rhino (interpreted mode).
  * Every Script component gets its own scope whose prototype is the shared global scope.
+ *
+ * Supports: start, update(dt), onCollision, onTrigger, onTriggerExit, onTap, onDestroy
+ * Plus global signals, timers, physics queries, camera control, save/load.
  */
 class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
 
@@ -30,14 +33,18 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
     private val compiled = HashMap<String, Script>()
     private val inputApi = SInput(engine)
 
+    /** The global scope (exposed for SPhysics etc). */
+    val globalScope: ScriptableObject get() = global!!
+
     val isRunning get() = cx != null
+
+    fun instanceCount(): Int = instances.size
 
     fun begin() {
         end()
         val c = Context.enter()
         c.optimizationLevel = -1
         c.languageVersion = Context.VERSION_ES6
-        // return Java strings / numbers / booleans as native JS values
         c.wrapFactory.isJavaPrimitiveWrap = false
         cx = c
         ownerThread = Thread.currentThread()
@@ -49,6 +56,8 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         put(g, "scene", SScene(engine, this))
         put(g, "audio", SAudio(engine))
         put(g, "console", SConsole(engine))
+        put(g, "physics", SPhysics(engine))
+        put(g, "signals", engine.signalBus)
         c.evaluateString(g, PRELUDE, "prelude", 1, null)
         compiled.clear()
         for (go in engine.scene.objects.toList()) attach(go)
@@ -134,7 +143,7 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
             val value: Any = v.toDoubleOrNull() ?: when (v.lowercase()) {
                 "true" -> true
                 "false" -> false
-                else -> v.trim('"', '\'')
+                else -> v.trim('\"', '\'')
             }
             ScriptableObject.putProperty(scope, k, value)
         }
@@ -214,10 +223,12 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
 
     override fun onCollisionEnter(a: GameObject, b: GameObject) {
         dispatch(a, "onCollision", b); dispatch(b, "onCollision", a)
+        engine.signalBus.emit("physics_collision", a.name, b.name)
     }
 
     override fun onTriggerEnter(a: GameObject, b: GameObject) {
         dispatch(a, "onTrigger", b); dispatch(b, "onTrigger", a)
+        engine.signalBus.emit("physics_trigger", a.name, b.name)
     }
 
     override fun onTriggerExit(a: GameObject, b: GameObject) {
@@ -233,9 +244,39 @@ function random(a, b) { if (a === undefined) return Math.random(); return a + Ma
 function randomInt(a, b) { return Math.floor(random(a, b + 1)); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
+function inverseLerp(a, b, v) { return (v - a) / (b - a); }
+function smoothstep(a, b, t) { t = clamp((t - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function sign(v) { return v > 0 ? 1 : (v < 0 ? -1 : 0); }
+function approach(current, target, step) {
+  if (current < target) return Math.min(current + step, target);
+  if (current > target) return Math.max(current - step, target);
+  return target;
+}
+function distanceTo(x1, y1, x2, y2) {
+  var dx = x2 - x1; var dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+function angleBetween(x1, y1, x2, y2) {
+  return Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+}
+function normalize(x, y) {
+  var len = Math.sqrt(x * x + y * y);
+  if (len < 0.0001) return { x: 0, y: 0 };
+  return { x: x / len, y: y / len };
+}
+function dot(ax, ay, bx, by) { return ax * bx + ay * by; }
+function cross(ax, ay, bx, by) { return ax * by - ay * bx; }
+function reflect(vx, vy, nx, ny) {
+  var d = 2 * (vx * nx + vy * ny);
+  return { x: vx - d * nx, y: vy - d * ny };
+}
+// Signal helpers
+function on(event, fn) { signals.connect(event, fn); }
+function emit(event, data) { signals.emit1(event, data); }
 var __timers = [];
 function after(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: 0 }); }
 function every(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: sec }); }
+function cancelTimers() { __timers = []; }
 function __tick() {
   var now = time.time;
   for (var i = __timers.length - 1; i >= 0; i--) {
@@ -243,6 +284,15 @@ function __tick() {
     if (now >= tm.t) { if (tm.every > 0) tm.t += tm.every; else __timers.splice(i, 1); tm.f(); }
   }
 }
+// Camera helpers
+function cameraShake(intensity, duration) { scene.cameraShake(intensity, duration); }
+function cameraZoom(size) { scene.cameraZoom(size); }
+// Save helpers
+function saveGame(key, value) { scene.saveData(key, value); }
+function loadGame(key) { return scene.loadData(key); }
+// Pool helpers
+function spawnPooled(name, x, y) { return scene.spawnFromPool(name, x, y); }
+function releasePooled(obj) { scene.releaseToPool(obj); }
 """
     }
 }
