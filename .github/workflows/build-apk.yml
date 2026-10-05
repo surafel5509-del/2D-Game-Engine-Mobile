@@ -54,9 +54,39 @@ jobs:
             python3 - "$RUNNER_TEMP/testDebugUnitTest.log" <<'PY'
           from pathlib import Path
           import sys
+          import xml.etree.ElementTree as ET
+
+          diagnostics = []
+          reports = Path("app/build/test-results/testDebugUnitTest")
+          for report in sorted(reports.glob("TEST-*.xml")) if reports.exists() else []:
+              try:
+                  root = ET.parse(report).getroot()
+              except ET.ParseError:
+                  continue
+              for case in root.findall(".//testcase"):
+                  for failure in list(case):
+                      if failure.tag in ("failure", "error"):
+                          message = failure.attrib.get("message", "")
+                          trace = (failure.text or "").strip().splitlines()
+                          summary = f"FAILED {case.attrib.get('classname', '')}#{case.attrib.get('name', '')}: {message}"
+                          diagnostics.append(summary[:1000])
+                          diagnostics.extend(line.strip()[:500] for line in trace[:3])
 
           log = Path(sys.argv[1]).read_text(errors="replace").splitlines()
-          details = "\n".join(log[-90:]) or "Gradle failed without producing output."
+          markers = (
+              "failure: build failed", "* what went wrong:", "execution failed for task",
+              "compilation error", "error:", "e: ", "failed", "there were failing tests",
+              "tests failed", "caused by:",
+          )
+          selected = []
+          for index, line in enumerate(log):
+              if any(marker in line.lower() for marker in markers) and not line.lstrip().startswith("at "):
+                  selected.extend(log[index:index + 2])
+          for line in selected:
+              if line not in diagnostics:
+                  diagnostics.append(line.strip())
+          details = "\n".join(diagnostics) or "\n".join(log[-25:]) or "Gradle failed without producing output."
+          details = details[:3500]
           escaped = details.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print(f"::error title=Gradle test failure::{escaped}")
           PY
