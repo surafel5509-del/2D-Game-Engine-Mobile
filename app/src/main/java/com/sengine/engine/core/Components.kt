@@ -288,6 +288,12 @@ class ParticleEmitter : Component() {
     var maxParticles = 300
     var burstCount = 0
     var rotationSpeed = 0f
+    var turbulence = 0f
+    var noise = 0f
+    var randomness = 0f
+    var shape = Shape.SQUARE
+
+    enum class Shape { SQUARE, CIRCLE, TRIANGLE, LINE, RING, CONE }
 
     // runtime
     val particles = ArrayList<Particle>()
@@ -300,8 +306,48 @@ class ParticleEmitter : Component() {
         var age: Float, var life: Float,
         var rotation: Float = 0f,
         var rotSpeed: Float = 0f,
-        var startSize: Float = 1f
+        var startSize: Float = 1f,
+        var turbulenceOffset: Float = 0f
     )
+
+    data class Preset(
+        val name: String = "",
+        val rate: Float = 30f,
+        val burstCount: Int = 0,
+        val lifetime: Float = 1.2f,
+        val speed: Float = 3f,
+        val direction: Float = 90f,
+        val spread: Float = 30f,
+        val startSize: Float = 0.25f,
+        val endSize: Float = 0.02f,
+        val startColor: Int = 0xFFFFC940.toInt(),
+        val endColor: Int = 0x00FF3D00.toInt(),
+        val gravity: Float = 0f,
+        val turbulence: Float = 0f,
+        val noise: Float = 0f,
+        val randomness: Float = 0f,
+        val rotationSpeed: Float = 0f,
+        val shape: Shape = Shape.SQUARE
+    )
+
+    fun applyPreset(preset: Preset) {
+        rate = preset.rate
+        burstCount = preset.burstCount
+        lifetime = preset.lifetime
+        speed = preset.speed
+        direction = preset.direction
+        spread = preset.spread
+        startSize = preset.startSize
+        endSize = preset.endSize
+        startColor = preset.startColor
+        endColor = preset.endColor
+        gravity = preset.gravity
+        turbulence = preset.turbulence
+        noise = preset.noise
+        randomness = preset.randomness
+        rotationSpeed = preset.rotationSpeed
+        shape = preset.shape
+    }
 
     override fun props() = listOf(
         Prop.B("Emitting", { emitting }, { emitting = it }),
@@ -316,6 +362,10 @@ class ParticleEmitter : Component() {
         Prop.Color("End Color", { endColor }, { endColor = it }),
         Prop.F("Gravity", { gravity }, { gravity = it }),
         Prop.F("Rotation Speed", { rotationSpeed }, { rotationSpeed = it }),
+        Prop.F("Turbulence", { turbulence }, { turbulence = it.coerceIn(0f, 5f) }),
+        Prop.F("Noise", { noise }, { noise = it.coerceIn(0f, 5f) }),
+        Prop.F("Randomness", { randomness }, { randomness = it.coerceIn(0f, 1f) }),
+        Prop.Choice("Shape", listOf("Square", "Circle", "Triangle", "Line", "Ring", "Cone"), { shape.ordinal }, { shape = Shape.values()[it] }),
         Prop.I("Max Particles", { maxParticles }, { maxParticles = it.coerceIn(1, 10000) }),
         Prop.I("Burst Count", { burstCount }, { burstCount = it.coerceIn(0, 1000) }),
     )
