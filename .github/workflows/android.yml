@@ -2,7 +2,9 @@ name: Build S Engine APK
 
 on:
   push:
+    branches: [ main ]
   pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -10,18 +12,28 @@ permissions:
 
 jobs:
   build:
+    name: Build & Publish APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Unit tests (headless engine simulation)
         run: |
@@ -36,27 +48,73 @@ jobs:
           chmod +x gradlew
           set -o pipefail
           ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log || {
-            # surface compiler errors as annotations
             msg=$(grep -E "^e: |error:|What went wrong|Could not|FAILURE" build.log | head -60 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=Build errors::${msg}"
             exit 1
           }
 
-      - name: Upload APK
+      - name: Build release APK
+        if: github.event_name != 'pull_request'
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: SEngine-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+      - name: Upload Release APK
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SEngine-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: APK Size Report
+        run: |
+          echo "### APK Size Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|------|" >> $GITHUB_STEP_SUMMARY
+          DEBUG_SIZE=$(du -h app/build/outputs/apk/debug/*.apk 2>/dev/null | cut -f1 || echo "N/A")
+          echo "| Debug   | ${DEBUG_SIZE} |" >> $GITHUB_STEP_SUMMARY
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            RELEASE_SIZE=$(du -h app/build/outputs/apk/release/app-release.apk | cut -f1)
+            echo "| Release | ${RELEASE_SIZE} |" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Publish rolling "latest build" pre-release
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk SEngine.apk
           gh release delete sengine-latest --yes --cleanup-tag 2>/dev/null || true
           gh release create sengine-latest SEngine.apk \
             --target "${GITHUB_SHA}" --prerelease \
-            --title "S Engine – latest build" \
+            --title "S Engine 2D – latest build" \
             --notes "Automatic debug build of ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install SEngine.apk on Android 8.0+."
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Comment PR with APK download link
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = `## 🔧 Debug APK Built Successfully!
+            
+            The debug APK is available as an artifact in the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            
+            Download **SEngine-debug-apk** from the artifacts section and install it on your Android device.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

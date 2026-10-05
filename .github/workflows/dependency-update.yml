@@ -1,0 +1,49 @@
+name: Dependency Update
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Monthly on the 1st
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check for outdated dependencies
+        id: check
+        run: |
+          chmod +x gradlew
+          echo "Checking for outdated dependencies..."
+          ./gradlew --no-daemon dependencyUpdates -Drevision=release || true
+
+      - name: Create PR if updates available
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          title: 'chore: Monthly dependency update'
+          body: |
+            Automated dependency update.
+            
+            Please review the changes and ensure the build still works correctly.
+            
+            - [ ] Tests pass
+            - [ ] Manual testing completed
+          branch: chore/dependency-update
+          delete-branch: true

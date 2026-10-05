@@ -1,0 +1,71 @@
+name: Greetings
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  greet:
+    name: Welcome New Contributors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: >
+            # Welcome to S Engine 2D! 🎮
+
+
+            Thank you for opening your first issue! We appreciate you taking the time to help improve the engine.
+
+
+            ## Quick Links
+
+            - 📚 [Documentation](README.md)
+            - 🐛 [Report a Bug](https://github.com/${{ github.repository }}/issues/new?template=bug_report.md)
+            - 💡 [Request a Feature](https://github.com/${{ github.repository }}/issues/new?template=feature_request.md)
+
+
+            ## Before We Begin
+
+            Please make sure to:
+
+            - Check if a similar issue already exists
+            - Include as much detail as possible (engine version, device, steps to reproduce)
+            - Attach relevant logs or screenshots
+
+
+            A maintainer will review your issue and respond soon. Thanks for contributing! 🚀
+          pr-message: >
+            # Welcome to S Engine 2D! 🎮
+
+
+            Thank you for your first pull request! We're excited to review your contribution.
+
+
+            ## Checklist
+
+            Please ensure your PR meets these requirements:
+
+            - [ ] Code follows the project's coding standards
+            - [ ] Tests have been added/updated if applicable
+            - [ ] Documentation has been updated
+            - [ ] Commit messages are clear and descriptive
+            - [ ] The PR targets the correct branch
+
+
+            ## What Happens Next
+
+            1. Automated checks will run (CI, linting, tests)
+            2. A maintainer will review your code
+            3. We may request changes or ask questions
+            4. Once approved, your PR will be merged
+
+
+            Thanks for contributing to S Engine 2D! 🚀

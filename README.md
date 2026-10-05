@@ -1,5 +1,12 @@
 # S Engine 2D — Professional Mobile Game Engine
 
+[![CI](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/ci.yml)
+[![Build](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/android.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/android.yml)
+[![CodeQL](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/codeql.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/surafel5509-del/2D-Game-Engine-Mobile)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases/latest)
+[![License](https://img.shields.io/github/license/surafel5509-del/2D-Game-Engine-Mobile)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/surafel5509-del/2D-Game-Engine-Mobile/total)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases)
+
 A powerful, production-ready 2D game engine for Android built entirely in Kotlin. Create commercial-quality mobile games including platformers, racing games, physics puzzles, shooters, and more — all from your phone or tablet.
 
 ## 🎮 Engine Features
