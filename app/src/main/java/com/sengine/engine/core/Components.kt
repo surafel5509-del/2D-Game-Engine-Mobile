@@ -8,6 +8,7 @@ object ComponentRegistry {
         "Rigidbody2D" to { Rigidbody2D() },
         "Collider2D" to { Collider2D() },
         "Script" to { ScriptComponent() },
+        "Material2D" to { Material2D() },
         "ParticleEmitter" to { ParticleEmitter() },
         "AudioSource" to { AudioSource() },
     )
@@ -129,6 +130,18 @@ class ScriptComponent : Component() {
     override fun props() = listOf(
         Prop.Asset("Script", AssetKind.SCRIPT, { script }, { script = it }),
         Prop.S("Params", { params }, { params = it }),
+    )
+}
+
+class Material2D : Component() {
+    override val type = "Material2D"
+    var shader = "default"
+    var parameters = ""
+    var blendMode = 0 // 0 Normal, 1 Additive, 2 Multiply, 3 Screen
+    override fun props() = listOf(
+        Prop.S("Shader", { shader }, { shader = it }),
+        Prop.S("Parameters", { parameters }, { parameters = it }, multiline = true),
+        Prop.Choice("Blend Mode", listOf("Normal", "Additive", "Multiply", "Screen"), { blendMode }, { blendMode = it }),
     )
 }
 

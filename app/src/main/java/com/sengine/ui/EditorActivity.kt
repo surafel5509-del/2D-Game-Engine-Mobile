@@ -73,9 +73,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     private lateinit var tabConsole: TextView
     private lateinit var tabAssets: TextView
     private lateinit var assetButtons: LinearLayout
-    private lateinit var playBtn: android.widget.ImageButton
-    private lateinit var pauseBtn: android.widget.ImageButton
-    private lateinit var stepBtn: android.widget.ImageButton
+    private lateinit var playBtn: TextView
+    private lateinit var pauseBtn: TextView
+    private lateinit var stepBtn: TextView
     private val toolButtons = HashMap<Tool, TextView>()
 
     private val handler = Handler(Looper.getMainLooper())
@@ -188,37 +188,26 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             tb.addView(b, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
             return b
         }
-        val backBtn = iconBtn(R.drawable.ic_toolbar_back) { onBackPressedDispatcher.onBackPressed() }
-        tb.addView(backBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        tbtn("←") { onBackPressedDispatcher.onBackPressed() }
         titleText = label("", 13f, C.TEXT, true).apply { setPadding(dp(6), 0, dp(6), 0); maxWidth = dp(160); isSingleLine = true }
         tb.addView(titleText)
         sep()
-        val menuBtn = iconBtn(R.drawable.ic_toolbar_menu) { toggle(hierarchyPanel) }
-        tb.addView(menuBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        tbtn("☰") { toggle(hierarchyPanel) }
         for ((tool, glyph) in listOf(Tool.HAND to "✋", Tool.MOVE to "✥", Tool.ROTATE to "⟳", Tool.SCALE to "⤢")) {
             toolButtons[tool] = tbtn(glyph) { setTool(tool) }
         }
         sep()
-        playBtn = iconBtn(R.drawable.ic_toolbar_play) { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
-        tb.addView(playBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        pauseBtn = iconBtn(R.drawable.ic_toolbar_pause) { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
-        tb.addView(pauseBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        stepBtn = iconBtn(R.drawable.ic_toolbar_step) { engine.stepFrame() }.apply { minimumHeight = dp(36); minimumWidth = dp(36) }
-        tb.addView(stepBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        playBtn = tbtn("▶") { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
+        pauseBtn = tbtn("⏸") { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
+        stepBtn = tbtn("⏭") { engine.stepFrame() }
         sep()
-        val undoBtn = iconBtn(R.drawable.ic_toolbar_undo) { undo() }
-        tb.addView(undoBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        val redoBtn = iconBtn(R.drawable.ic_toolbar_redo) { redo() }
-        tb.addView(redoBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        tbtn("↶") { undo() }
+        tbtn("↷") { redo() }
         sep()
-        val addBtn = iconBtn(R.drawable.ic_toolbar_add) { addObjectMenu(it) }
-        tb.addView(addBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        val saveBtn = iconBtn(R.drawable.ic_toolbar_save) { saveScene() }
-        tb.addView(saveBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        val moreBtn = iconBtn(R.drawable.ic_toolbar_more) { mainMenu(it) }
-        tb.addView(moreBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        val panelBtn = iconBtn(R.drawable.ic_toolbar_menu) { toggle(inspectorPanel) }
-        tb.addView(panelBtn, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        tbtn("＋") { addObjectMenu(it) }
+        tbtn("💾") { saveScene() }
+        tbtn("⋮") { mainMenu(it) }
+        tbtn("▤") { toggle(inspectorPanel) }
         val tbScroll = HorizontalScrollView(this).apply { addView(tb); isHorizontalScrollBarEnabled = false; setBackgroundColor(C.HEADER) }
         root.addView(tbScroll, lp(MATCH, WRAP))
 
@@ -327,10 +316,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     private fun updateModeUi() {
         val m = engine.mode
-        val playColor = if (m == Engine.Mode.EDIT) C.PANEL2 else C.GREEN
-        playBtn.background = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), round(playColor, dp(6).toFloat()), null)
-        val pauseColor = if (m == Engine.Mode.PAUSED) C.YELLOW else C.PANEL2
-        pauseBtn.background = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), round(pauseColor, dp(6).toFloat()), null)
+        playBtn.text = if (m == Engine.Mode.EDIT) "▶" else "■"
+        playBtn.setButtonColor(if (m == Engine.Mode.EDIT) C.PANEL2 else C.GREEN)
+        pauseBtn.setButtonColor(if (m == Engine.Mode.PAUSED) C.YELLOW else C.PANEL2)
         stepBtn.alpha = if (m == Engine.Mode.PAUSED) 1f else 0.4f
         toolbar.setBackgroundColor(if (m == Engine.Mode.EDIT) C.HEADER else 0xFF1D2E45.toInt())
         controls.visibility = if (m == Engine.Mode.EDIT) View.GONE else View.VISIBLE
