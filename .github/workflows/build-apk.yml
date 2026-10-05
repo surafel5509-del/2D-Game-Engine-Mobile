@@ -27,7 +27,21 @@ jobs:
         run: chmod +x gradlew
       
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "Build failed. Showing last 100 lines:"
+            tail -100 build.log
+            exit 1
+          fi
+      
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
       
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
