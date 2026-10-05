@@ -185,12 +185,15 @@ class AssetLibraryActivity : AppCompatActivity() {
             private val detail = label("", 10f, C.DIM).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }
 
             init {
-                preview.gravity = Gravity.CENTER
                 card.addView(preview, lp(dp(62), dp(62)).margins(0, 0, dp(10), 0))
                 info.addView(name)
                 info.addView(detail)
                 card.addView(info, lp(0, WRAP, 1f))
                 card.addView(actions, lp(WRAP, WRAP).margins(dp(6), 0, 0, 0))
+            }
+
+            private fun addCenteredPreview(view: View) {
+                preview.addView(view, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
             }
 
             fun bind(item: BuiltinAsset) {
@@ -202,11 +205,11 @@ class AssetLibraryActivity : AppCompatActivity() {
                         val image = ImageView(this@AssetLibraryActivity).apply { scaleType = ImageView.ScaleType.FIT_CENTER; adjustViewBounds = true }
                         assets.open("asset-library/${item.path}").use { image.setImageBitmap(BitmapFactory.decodeStream(it)) }
                         preview.addView(image, FrameLayout.LayoutParams(MATCH, MATCH))
-                    } catch (_: Exception) { preview.addView(label("IMG", 11f, C.DIM)) }
-                    AssetKind.SOUND -> preview.addView(label("♪", 28f, C.GREEN, true))
-                    AssetKind.SCRIPT -> preview.addView(label("JS", 16f, C.YELLOW, true))
-                    AssetKind.SHADER -> preview.addView(label("GL", 16f, 0xFFB69CFF.toInt(), true))
-                    null -> preview.addView(label("•", 20f, C.DIM))
+                    } catch (_: Exception) { addCenteredPreview(label("IMG", 11f, C.DIM)) }
+                    AssetKind.SOUND -> addCenteredPreview(label("♪", 28f, C.GREEN, true))
+                    AssetKind.SCRIPT -> addCenteredPreview(label("JS", 16f, C.YELLOW, true))
+                    AssetKind.SHADER -> addCenteredPreview(label("GL", 16f, 0xFFB69CFF.toInt(), true))
+                    null -> addCenteredPreview(label("•", 20f, C.DIM))
                 }
                 actions.removeAllViews()
                 when (item.kind) {

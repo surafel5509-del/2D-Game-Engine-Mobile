@@ -968,7 +968,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         }
         if (currentFocus !is android.widget.EditText && repeat == 0) {
             when (keyCode) {
-                KeyEvent.KEYCODE_DELETE, KeyEvent.KEYCODE_FORWARD_DEL -> if (deleteSelection()) return true
+                KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL -> if (deleteSelection()) return true
                 KeyEvent.KEYCODE_W -> { setTool(Tool.MOVE); return true }
                 KeyEvent.KEYCODE_E -> { setTool(Tool.ROTATE); return true }
                 KeyEvent.KEYCODE_R -> { setTool(Tool.SCALE); return true }
