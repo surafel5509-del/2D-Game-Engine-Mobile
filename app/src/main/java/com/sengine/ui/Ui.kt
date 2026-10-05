@@ -96,6 +96,20 @@ fun Context.hbox(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
 }
 
+/** Icon-only toolbar button using ImageButton with rounded ripple background. */
+fun Context.iconBtn(resId: Int, onClick: () -> Unit): android.widget.ImageButton {
+    return android.widget.ImageButton(this).apply {
+        setImageResource(resId)
+        background = RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), round(C.PANEL2, dp(6).toFloat()), null)
+        scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+        setPadding(dp(6), dp(6), dp(6), dp(6))
+        minimumWidth = dp(36)
+        minimumHeight = dp(36)
+        setOnClickListener { onClick() }
+        contentDescription = "toolbar action"
+    }
+}
+
 fun fmt(v: Float): String {
     if (v == Math.round(v).toFloat() && kotlin.math.abs(v) < 1e7) return Math.round(v).toString()
     return String.format(java.util.Locale.US, "%.3f", v).trimEnd('0').trimEnd('.')
