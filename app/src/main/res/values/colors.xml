@@ -1,7 +1,7 @@
 <resources>
-    <color name="bg">#FF1E1F22</color>
-    <color name="panel">#FF2B2D31</color>
-    <color name="accent">#FF4C8DFF</color>
-    <color name="text">#FFE6E6E6</color>
-    <color name="ic_bg">#FF151A22</color>
+    <color name="bg">#FF16171A</color>
+    <color name="panel">#FF202228</color>
+    <color name="accent">#FF5B8FFF</color>
+    <color name="text">#FFEAEAEA</color>
+    <color name="ic_bg">#FF15161A</color>
 </resources>

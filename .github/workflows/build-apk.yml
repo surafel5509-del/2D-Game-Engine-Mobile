@@ -19,19 +19,34 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: gradle
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-read-only: false
 
     - name: Compile Kotlin
-      run: gradle compileDebugKotlin --stacktrace
+      run: ./gradlew compileDebugKotlin --stacktrace
 
-    - name: Build APK
-      run: gradle assembleDebug
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug --stacktrace
 
-    - name: Upload APK
+    - name: Build Release APK
+      run: ./gradlew assembleRelease --stacktrace
+
+    - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: SEngine-debug-apk
         path: app/build/outputs/apk/debug/app-debug.apk
         if-no-files-found: error
+        retention-days: 7
+
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: SEngine-release-apk
+        path: app/build/outputs/apk/release/app-release.apk
+        if-no-files-found: error
+        retention-days: 7

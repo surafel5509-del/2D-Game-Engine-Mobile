@@ -183,30 +183,36 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         toolbar = hbox().apply { setPadding(dp(4), dp(3), dp(4), dp(3)) }
         val tb = toolbar
         fun sep() = tb.addView(View(this).apply { setBackgroundColor(0xFF45474D.toInt()) }, lp(dp(1), dp(22)).margins(dp(5), 0, dp(5), 0))
-        fun tbtn(t: String, onClick: (View) -> Unit): TextView {
-            val b = button(t, C.PANEL2, C.TEXT, onClick).apply { textSize = 15f; setPadding(dp(10), dp(5), dp(10), dp(5)) }
+        fun tbtn(t: String, iconRes: Int? = null, onClick: (View) -> Unit): TextView {
+            val b = button(t, C.PANEL2, C.TEXT, onClick).apply {
+                textSize = 14f; setPadding(dp(8), dp(5), dp(8), dp(5)); minWidth = dp(36)
+                if (iconRes != null) {
+                    setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0)
+                    compoundDrawablePadding = dp(4)
+                }
+            }
             tb.addView(b, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
             return b
         }
-        tbtn("←") { onBackPressedDispatcher.onBackPressed() }
+        tbtn("", R.drawable.ic_toolbar_back) { onBackPressedDispatcher.onBackPressed() }
         titleText = label("", 13f, C.TEXT, true).apply { setPadding(dp(6), 0, dp(6), 0); maxWidth = dp(160); isSingleLine = true }
         tb.addView(titleText)
         sep()
-        tbtn("☰") { toggle(hierarchyPanel) }
+        tbtn("", R.drawable.ic_toolbar_menu) { toggle(hierarchyPanel) }
         for ((tool, glyph) in listOf(Tool.HAND to "✋", Tool.MOVE to "✥", Tool.ROTATE to "⟳", Tool.SCALE to "⤢")) {
             toolButtons[tool] = tbtn(glyph) { setTool(tool) }
         }
         sep()
-        playBtn = tbtn("▶") { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
-        pauseBtn = tbtn("⏸") { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
-        stepBtn = tbtn("⏭") { engine.stepFrame() }
+        playBtn = tbtn("", R.drawable.ic_toolbar_play) { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
+        pauseBtn = tbtn("", R.drawable.ic_toolbar_pause) { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
+        stepBtn = tbtn("", R.drawable.ic_toolbar_step) { engine.stepFrame() }
         sep()
-        tbtn("↶") { undo() }
-        tbtn("↷") { redo() }
+        tbtn("", R.drawable.ic_toolbar_undo) { undo() }
+        tbtn("", R.drawable.ic_toolbar_redo) { redo() }
         sep()
-        tbtn("＋") { addObjectMenu(it) }
-        tbtn("💾") { saveScene() }
-        tbtn("⋮") { mainMenu(it) }
+        tbtn("", R.drawable.ic_toolbar_add) { addObjectMenu(it) }
+        tbtn("", R.drawable.ic_toolbar_save) { saveScene() }
+        tbtn("", R.drawable.ic_toolbar_more) { mainMenu(it) }
         tbtn("▤") { toggle(inspectorPanel) }
         val tbScroll = HorizontalScrollView(this).apply { addView(tb); isHorizontalScrollBarEnabled = false; setBackgroundColor(C.HEADER) }
         root.addView(tbScroll, lp(MATCH, WRAP))

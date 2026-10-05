@@ -1,14 +1,14 @@
 <resources>
     <style name="Theme.SEngine" parent="Theme.MaterialComponents.NoActionBar">
         <item name="colorPrimary">@color/accent</item>
-        <item name="colorPrimaryVariant">#FF2F6BD8</item>
+        <item name="colorPrimaryVariant">#FF3A6BCC</item>
         <item name="colorOnPrimary">#FFFFFFFF</item>
         <item name="colorSecondary">@color/accent</item>
         <item name="colorOnSecondary">#FFFFFFFF</item>
         <item name="colorAccent">@color/accent</item>
         <item name="android:windowBackground">@color/bg</item>
-        <item name="android:statusBarColor">#FF151619</item>
-        <item name="android:navigationBarColor">#FF151619</item>
+        <item name="android:statusBarColor">#FF121316</item>
+        <item name="android:navigationBarColor">#FF121316</item>
         <item name="android:textColorPrimary">@color/text</item>
     </style>
 
