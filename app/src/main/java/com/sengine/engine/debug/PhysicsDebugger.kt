@@ -4,7 +4,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import com.sengine.engine.core.*
-import com.sengine.engine.physics.PhysicsEngine
+import com.sengine.engine.core.Collider2D
+import com.sengine.engine.core.JointComponent
+import com.sengine.engine.core.GameObject
+import com.sengine.engine.core.Scene
 
 /**
  * Physics debugger for visualizing colliders, joints, rays, and contact points.
@@ -16,7 +19,6 @@ class PhysicsDebugger {
     var showContacts = true
     var showRaycasts = true
     var showAABB = false
-    var showNormals = true
     var showCenterOfMass = true
 
     private val colliderPaint = Paint().apply {
@@ -40,16 +42,9 @@ class PhysicsDebugger {
         isAntiAlias = true
     }
 
-    private val contactPaint = Paint().apply {
-        color = Color.RED
+    private val comPaint = Paint().apply {
+        color = Color.WHITE
         style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-
-    private val normalPaint = Paint().apply {
-        color = Color.MAGENTA
-        style = Paint.Style.STROKE
-        strokeWidth = 2f
         isAntiAlias = true
     }
 
@@ -57,12 +52,6 @@ class PhysicsDebugger {
         color = Color.argb(100, 255, 255, 0)
         style = Paint.Style.STROKE
         strokeWidth = 1f
-        isAntiAlias = true
-    }
-
-    private val comPaint = Paint().apply {
-        color = Color.WHITE
-        style = Paint.Style.FILL
         isAntiAlias = true
     }
 
@@ -76,7 +65,7 @@ class PhysicsDebugger {
     /**
      * Draw physics debug visualization
      */
-    fun draw(canvas: Canvas, physicsEngine: PhysicsEngine, scene: Scene) {
+    fun draw(canvas: Canvas, scene: Scene) {
         if (!enabled) return
 
         // Draw all colliders
@@ -89,11 +78,6 @@ class PhysicsDebugger {
             drawAllJoints(canvas, scene)
         }
 
-        // Draw contact points
-        if (showContacts) {
-            drawContactPoints(canvas, physicsEngine)
-        }
-
         // Draw AABB
         if (showAABB) {
             drawAllAABB(canvas, scene)
@@ -101,15 +85,15 @@ class PhysicsDebugger {
     }
 
     private fun drawAllColliders(canvas: Canvas, scene: Scene) {
-        scene.root.forEachChild { go ->
-            val collider = go.getComponent(Collider2D::class.java) ?: return@forEachChild
+        for (go in scene.objects) {
+            val collider = go.getAny<Collider2D>() ?: continue
 
             val paint = if (collider.isTrigger) triggerPaint else colliderPaint
 
-            when (collider.shape.lowercase()) {
-                "box" -> drawBoxCollider(canvas, go, collider, paint)
-                "circle" -> drawCircleCollider(canvas, go, collider, paint)
-                "capsule" -> drawCapsuleCollider(canvas, go, collider, paint)
+            when (collider.shape) {
+                0 -> drawBoxCollider(canvas, go, collider, paint) // Box
+                1 -> drawCircleCollider(canvas, go, collider, paint) // Circle
+                2 -> drawCapsuleCollider(canvas, go, collider, paint) // Capsule
             }
 
             // Draw center of mass
@@ -149,16 +133,15 @@ class PhysicsDebugger {
         val r = collider.radius
         val h = collider.height
 
-        // Draw capsule as rounded rectangle
         val rect = android.graphics.RectF(cx - r, cy - h / 2f, cx + r, cy + h / 2f)
         canvas.drawRoundRect(rect, r, r, paint)
     }
 
     private fun drawAllJoints(canvas: Canvas, scene: Scene) {
-        scene.root.forEachChild { go ->
-            val joint = go.getComponent(JointComponent::class.java) ?: return@forEachChild
+        for (go in scene.objects) {
+            val joint = go.getAny<JointComponent>() ?: continue
 
-            val target = scene.root.findChildRecursive { it.name == joint.targetName }
+            val target = scene.find(joint.targetName)
             if (target != null) {
                 canvas.drawLine(go.x, go.y, target.x, target.y, jointPaint)
 
@@ -169,24 +152,18 @@ class PhysicsDebugger {
         }
     }
 
-    private fun drawContactPoints(canvas: Canvas, physicsEngine: PhysicsEngine) {
-        // Would need contact point data from physics engine
-        // This is a placeholder for the actual implementation
-    }
-
     private fun drawAllAABB(canvas: Canvas, scene: Scene) {
-        scene.root.forEachChild { go ->
-            val collider = go.getComponent(Collider2D::class.java) ?: return@forEachChild
+        for (go in scene.objects) {
+            val collider = go.getAny<Collider2D>() ?: continue
 
-            // Calculate AABB
-            val aabb = when (collider.shape.lowercase()) {
-                "box" -> {
+            val aabb = when (collider.shape) {
+                0 -> { // Box
                     val cx = go.x + collider.offsetX
                     val cy = go.y + collider.offsetY
                     android.graphics.RectF(cx - collider.width / 2f, cy - collider.height / 2f,
                         cx + collider.width / 2f, cy + collider.height / 2f)
                 }
-                "circle" -> {
+                1 -> { // Circle
                     val cx = go.x + collider.offsetX
                     val cy = go.y + collider.offsetY
                     android.graphics.RectF(cx - collider.radius, cy - collider.radius,
@@ -204,21 +181,21 @@ class PhysicsDebugger {
     /**
      * Draw debug text overlay
      */
-    fun drawDebugText(canvas: Canvas, physicsEngine: PhysicsEngine) {
+    fun drawDebugText(canvas: Canvas, scene: Scene) {
         if (!enabled) return
 
-        val stats = physicsEngine.getStats()
-        var y = 50f
+        val bodyCount = scene.objects.count { it.getAny<Rigidbody2D>() != null }
+        val colliderCount = scene.objects.count { it.getAny<Collider2D>() != null }
+        val jointCount = scene.objects.count { it.getAny<JointComponent>() != null }
 
+        var y = 50f
         canvas.drawText("Physics Debug", 20f, y, textPaint)
         y += 30f
-        canvas.drawText("Active Bodies: ${stats.activeBodies}", 20f, y, textPaint)
+        canvas.drawText("Rigid Bodies: $bodyCount", 20f, y, textPaint)
         y += 30f
-        canvas.drawText("Contact Points: ${stats.contactCount}", 20f, y, textPaint)
+        canvas.drawText("Colliders: $colliderCount", 20f, y, textPaint)
         y += 30f
-        canvas.drawText("Raycasts: ${stats.raycastCount}", 20f, y, textPaint)
-        y += 30f
-        canvas.drawText("Physics Time: ${"%.2f".format(stats.physicsTimeMs)}ms", 20f, y, textPaint)
+        canvas.drawText("Joints: $jointCount", 20f, y, textPaint)
     }
 }
 
@@ -245,11 +222,6 @@ class Profiler {
     var drawCalls = 0
     var textureMemoryMb = 0f
 
-    // Physics stats
-    var physicsTimeMs = 0f
-    var bodyCount = 0
-    var contactCount = 0
-
     // Memory stats
     var usedMemoryMb = 0f
     var totalMemoryMb = 0f
@@ -261,7 +233,7 @@ class Profiler {
     fun endFrame() {
         val elapsed = (System.nanoTime() - lastFrameTime) / 1_000_000f
         frameTime = elapsed
-        fps = 1000f / elapsed
+        fps = if (elapsed > 0) 1000f / elapsed else 0f
 
         frameTimes.add(elapsed)
         if (frameTimes.size > maxFrameSamples) {
@@ -271,9 +243,11 @@ class Profiler {
         // Calculate average FPS
         if (frameTimes.isNotEmpty()) {
             val avgFrameTime = frameTimes.average().toFloat()
-            avgFps = 1000f / avgFrameTime
-            minFps = 1000f / frameTimes.max()!!
-            maxFps = 1000f / frameTimes.min()!!
+            avgFps = if (avgFrameTime > 0) 1000f / avgFrameTime else 0f
+            val maxTime = frameTimes.maxOrNull() ?: 1f
+            val minTime = frameTimes.minOrNull() ?: 1f
+            minFps = if (maxTime > 0) 1000f / maxTime else 0f
+            maxFps = if (minTime > 0) 1000f / minTime else 0f
         }
 
         // Update memory stats
@@ -320,8 +294,6 @@ class Profiler {
         canvas.drawText("Draw Calls: $drawCalls", 10f, y, paint)
         y += 25f
         canvas.drawText("Memory: %.1f / %.1f MB".format(usedMemoryMb, totalMemoryMb), 10f, y, paint)
-        y += 25f
-        canvas.drawText("Physics: %.2f ms (%d bodies)".format(physicsTimeMs, bodyCount), 10f, y, paint)
 
         // Draw FPS graph
         drawFpsGraph(canvas, paint)
@@ -342,7 +314,7 @@ class Profiler {
 
         if (frameTimes.size < 2) return
 
-        val maxFrameTime = frameTimes.max() ?: 1f
+        val maxFrameTime = frameTimes.maxOrNull() ?: 1f
         val step = graphW / frameTimes.size
 
         var prevX = graphX
@@ -350,10 +322,11 @@ class Profiler {
 
         for (i in 1 until frameTimes.size) {
             val x = graphX + i * step
-            val y = graphY + graphH - (frameTimes[i] / maxFrameTime) * graphH
-            canvas.drawLine(prevX, prevY, x, y, graphPaint)
+            val normalizedTime = if (maxFrameTime > 0) frameTimes[i] / maxFrameTime else 0f
+            val yPos = graphY + graphH - normalizedTime * graphH
+            canvas.drawLine(prevX, prevY, x, yPos, graphPaint)
             prevX = x
-            prevY = y
+            prevY = yPos
         }
     }
 

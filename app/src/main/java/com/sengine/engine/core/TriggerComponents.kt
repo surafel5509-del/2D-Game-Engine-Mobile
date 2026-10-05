@@ -21,7 +21,7 @@ class TriggerZone : Component() {
     var onStayCallback: ((GameObject) -> Unit)? = null
 
     // Runtime
-    private val triggeredObjects = mutableSetOf<String>()
+    private val triggeredObjects = mutableSetOf<Long>()
     private var hasTriggered = false
 
     enum class TriggerMode { ON_ENTER, ON_EXIT, ON_STAY, ON_ENTER_AND_EXIT }
