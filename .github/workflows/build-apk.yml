@@ -24,14 +24,24 @@ jobs:
       uses: gradle/actions/setup-gradle@v4
 
     - name: Compile Kotlin
+      id: compile
       run: |
-        set -o pipefail
-        gradle compileDebugKotlin --stacktrace 2>&1 | tee build-output.log
+        set +e
+        gradle compileDebugKotlin --stacktrace > compile-output.log 2>&1
+        EXIT_CODE=$?
+        echo "=== COMPILATION ERRORS ==="
+        grep -E "^e: |error:|Unresolved|Cannot|Expecting|Type mismatch|Overload" compile-output.log || true
+        echo "=== END ERRORS ==="
+        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        cat compile-output.log
+        exit $EXIT_CODE
 
     - name: Build APK
+      if: steps.compile.outputs.exit_code == '0'
       run: gradle assembleDebug
 
     - name: Upload APK
+      if: steps.compile.outputs.exit_code == '0'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
@@ -42,4 +52,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: build-log
-        path: build-output.log
+        path: compile-output.log
