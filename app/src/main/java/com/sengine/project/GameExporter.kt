@@ -198,7 +198,7 @@ For a privately signed release, configure repository secrets `SENGINE_KEYSTORE_B
 The project's scenes, scripts, and assets are embedded in `app/src/main/assets/sengine_project.zip` and refreshed on first launch/update. Engine player sources are under `app/src/main/java/com/sengine/`. Change the game icon in `app/src/main/res/drawable/game_icon.xml` and update the package id in `app/build.gradle.kts` before publishing.
 """
 
-    settingsGradle = """pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+    private val settingsGradle = """pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories { google(); mavenCentral() }
@@ -207,24 +207,24 @@ rootProject.name = "S Engine Game"
 include(":app")
 """
 
-    rootGradle = """plugins {
+    private val rootGradle = """plugins {
     id("com.android.application") version "8.3.2" apply false
     id("org.jetbrains.kotlin.android") version "1.9.23" apply false
 }
 """
 
-    gradleProperties = """org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+    private val gradleProperties = """org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 kotlin.code.style=official
 """
 
-    colors = """<resources>
+    private val colors = """<resources>
     <color name="game_bg">#FF101522</color>
     <color name="game_accent">#FF4C8DFF</color>
 </resources>
 """
 
-    themes = """<resources>
+    private val themes = """<resources>
     <style name="Theme.Game" parent="Theme.AppCompat.NoActionBar">
         <item name="colorAccent">@color/game_accent</item>
         <item name="android:windowBackground">@color/game_bg</item>
@@ -234,7 +234,7 @@ kotlin.code.style=official
 </resources>
 """
 
-    gameIcon = """<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    private val gameIcon = """<vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
     <path android:fillColor="#FF151C2C" android:pathData="M0,0h48v48h-48z" />
     <path android:fillColor="#FF4C8DFF" android:pathData="M8,13h32v22h-32z" />
@@ -242,7 +242,7 @@ kotlin.code.style=official
 </vector>
 """
 
-    gitignore = """.gradle/
+    private val gitignore = """.gradle/
 local.properties
 .idea/
 .DS_Store
@@ -255,7 +255,7 @@ app/build/
 *.keystore
 """
 
-    workflow = """name: Build Android game APK
+    private val workflow = """name: Build Android game APK
 on:
   push:
     branches: ['**']
