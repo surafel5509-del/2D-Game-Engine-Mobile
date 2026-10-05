@@ -38,7 +38,30 @@ jobs:
         run: python3 tools/validate_export_template.py
 
       - name: Run unit and engine simulation tests
-        run: gradle testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          set +e
+          gradle testDebugUnitTest --stacktrace --console=plain 2>&1 | tee "$RUNNER_TEMP/testDebugUnitTest.log"
+          test_status=${PIPESTATUS[0]}
+          if (( test_status != 0 )); then
+            {
+              echo "## Unit and engine simulation test failure"
+              echo
+              echo '```text'
+              tail -n 90 "$RUNNER_TEMP/testDebugUnitTest.log"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            python3 - "$RUNNER_TEMP/testDebugUnitTest.log" <<'PY'
+          from pathlib import Path
+          import sys
+
+          log = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          details = "\n".join(log[-90:]) or "Gradle failed without producing output."
+          escaped = details.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Gradle test failure::{escaped}")
+          PY
+          fi
+          exit "$test_status"
 
       - name: Build installable editor APK
         run: gradle assembleDebug --stacktrace
@@ -56,6 +79,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SEngine-test-reports
-          path: app/build/reports/tests/testDebugUnitTest/
-          if-no-files-found: ignore
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            ${{ runner.temp }}/testDebugUnitTest.log
+          if-no-files-found: error
           retention-days: 14

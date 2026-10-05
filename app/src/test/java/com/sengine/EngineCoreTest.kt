@@ -49,16 +49,18 @@ class EngineCoreTest {
             go.add(SpriteRenderer().also { it.texture = "atlas.png"; it.uvX = 0.25f; it.uvWidth = 0.25f })
             go.add(SpriteAnimator().also { it.columns = 4; it.rows = 2; it.frameCount = 6; it.framesPerSecond = 12f })
         }
-        scene.create("Spring Joint").add(Joint2D().also {
-            it.jointType = 2; it.connectedBody = "Sprite"; it.length = 2.5f; it.frequency = 3f
+        scene.create("Joint").add(Joint2D().also {
+            it.jointType = 2; it.connectedBody = "Sprite"; it.length = 3.5f; it.frequency = 3f
         })
         val json = SceneSerializer.toJson(scene).toString()
         val restored = SceneSerializer.fromJson(JSONObject(json))
         assertEquals(json, SceneSerializer.toJson(restored).toString())
         assertTrue(restored.find("Camera")!!.getAny<Camera2D>()!!.pixelPerfect)
         assertEquals(4, restored.find("Sprite")!!.getAny<SpriteAnimator>()!!.columns)
-        assertEquals("Sprite", restored.find("Spring Joint")!!.getAny<Joint2D>()!!.connectedBody)
-        assertEquals(3f, restored.find("Spring Joint")!!.getAny<Joint2D>()!!.frequency, 0.001f)
+        val joint = restored.find("Joint")!!.getAny<Joint2D>()!!
+        assertEquals("Sprite", joint.connectedBody)
+        assertEquals(3.5f, joint.length, 0.001f)
+        assertEquals(3f, joint.frequency, 0.001f)
     }
 
     @Test
