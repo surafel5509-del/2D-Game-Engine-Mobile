@@ -25,17 +25,7 @@ jobs:
       run: chmod +x gradlew
 
     - name: Build with Gradle
-      id: build
-      run: |
-        ./gradlew assembleDebug --stacktrace 2>&1 | tee build-output.log
-        exit ${PIPESTATUS[0]}
-
-    - name: Upload build log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: build-output.log
+      run: ./gradlew assembleDebug --stacktrace
 
     - name: Upload APK
       if: success()
