@@ -60,12 +60,32 @@ class Camera2D : Component() {
     var background = 0xFF1B2533.toInt()
     var follow = ""
     var smoothing = 5f
+    var zoom = 1f
+    var shake = 0f
+    var limitLeft = false
+    var limitRight = false
+    var limitTop = false
+    var limitBottom = false
+    var limitX1 = -10f
+    var limitX2 = 10f
+    var limitY1 = -10f
+    var limitY2 = 10f
 
     override fun props() = listOf(
         Prop.F("Size", { size }, { size = it.coerceAtLeast(0.1f) }),
         Prop.Color("Background", { background }, { background = it }),
         Prop.S("Follow Target", { follow }, { follow = it }),
         Prop.F("Follow Smoothing", { smoothing }, { smoothing = it.coerceAtLeast(0f) }),
+        Prop.F("Zoom", { zoom }, { zoom = it.coerceAtLeast(0.1f) }, 0.1f),
+        Prop.F("Shake", { shake }, { shake = it.coerceAtLeast(0f) }, 0.1f),
+        Prop.B("Limit Left", { limitLeft }, { limitLeft = it }),
+        Prop.B("Limit Right", { limitRight }, { limitRight = it }),
+        Prop.B("Limit Top", { limitTop }, { limitTop = it }),
+        Prop.B("Limit Bottom", { limitBottom }, { limitBottom = it }),
+        Prop.F("Limit X1", { limitX1 }, { limitX1 = it }),
+        Prop.F("Limit X2", { limitX2 }, { limitX2 = it }),
+        Prop.F("Limit Y1", { limitY1 }, { limitY1 = it }),
+        Prop.F("Limit Y2", { limitY2 }, { limitY2 = it }),
     )
 }
 
