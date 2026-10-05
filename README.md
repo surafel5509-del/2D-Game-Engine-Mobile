@@ -1,8 +1,6 @@
 # S Engine 2D — Professional Mobile Game Engine
 
-[![CI](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/ci.yml)
-[![Build](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/android.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/android.yml)
-[![CodeQL](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/codeql.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/codeql.yml)
+[![Build](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/build-apk.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/build-apk.yml)
 [![Release](https://img.shields.io/github/v/release/surafel5509-del/2D-Game-Engine-Mobile)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases/latest)
 [![License](https://img.shields.io/github/license/surafel5509-del/2D-Game-Engine-Mobile)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/surafel5509-del/2D-Game-Engine-Mobile/total)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases)
@@ -119,7 +117,7 @@ com.sengine.engine/
 ./gradlew assembleDebug
 ```
 
-The APK installs directly on any Android device. No computer needed to create or play games.
+To download the GitHub-built APK, open **Actions → Build S Engine APK → latest successful run → Artifacts → `SEngine-debug-apk`**. The APK installs directly on Android 8.0+ devices.
 
 ## 📜 Scripting Example
 
