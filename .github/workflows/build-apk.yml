@@ -29,31 +29,27 @@ jobs:
       id: compile
       run: |
         set +e
-        gradle compileDebugKotlin --stacktrace > compile-output.log 2>&1
+        gradle compileDebugKotlin --stacktrace > /tmp/compile-output.log 2>&1
         EXIT_CODE=$?
-        # Extract errors
-        echo "=== BUILD OUTPUT ===" > build-errors.txt
-        grep -E "^e: |error:|Unresolved|Cannot|Expecting|Type mismatch" compile-output.log >> build-errors.txt 2>/dev/null || true
-        echo "" >> build-errors.txt
-        echo "=== LAST 80 LINES ===" >> build-errors.txt
-        tail -80 compile-output.log >> build-errors.txt
-        cat build-errors.txt
-        # Write summary
-        echo "## Compilation Result" >> $GITHUB_STEP_SUMMARY
-        echo "Exit code: $EXIT_CODE" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        cat build-errors.txt >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
+        # Extract errors and write to a file at repo root
+        {
+          echo "=== COMPILATION ERRORS ==="
+          grep -E "^e: |error:|Unresolved|Cannot|Expecting|Type mismatch" /tmp/compile-output.log 2>/dev/null || echo "No matching error patterns found"
+          echo ""
+          echo "=== LAST 100 LINES OF BUILD OUTPUT ==="
+          tail -100 /tmp/compile-output.log
+        } > ${{ github.workspace }}/build-errors.txt
+        cat ${{ github.workspace }}/build-errors.txt
         exit $EXIT_CODE
 
-    - name: Commit build errors
+    - name: Push build errors
       if: always()
       run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        git add build-errors.txt || true
-        git commit -m "Update build errors [skip ci]" || true
-        git push || true
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add -f build-errors.txt
+        git diff --cached --quiet || git commit -m "chore: update build errors [skip ci]"
+        git push origin HEAD:${{ github.ref_name }} || echo "Push failed but continuing"
 
     - name: Build APK
       if: steps.compile.outcome == 'success'
