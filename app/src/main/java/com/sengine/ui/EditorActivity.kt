@@ -184,7 +184,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         val tb = toolbar
         fun sep() = tb.addView(View(this).apply { setBackgroundColor(0xFF45474D.toInt()) }, lp(dp(1), dp(22)).margins(dp(5), 0, dp(5), 0))
         fun tbtn(t: String, onClick: (View) -> Unit): TextView {
-            val b = button(t, C.PANEL2, C.TEXT, onClick).apply { textSize = 14f; setPadding(dp(8), dp(5), dp(8), dp(5)); minWidth = dp(36) }
+            val b = button(t, C.PANEL2, C.TEXT, onClick).apply { textSize = 15f; setPadding(dp(10), dp(5), dp(10), dp(5)) }
             tb.addView(b, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
             return b
         }
