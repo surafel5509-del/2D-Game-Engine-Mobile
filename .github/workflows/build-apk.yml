@@ -24,18 +24,14 @@ jobs:
       uses: gradle/actions/setup-gradle@v4
 
     - name: Compile Kotlin
-      id: compile
-      continue-on-error: true
       run: |
+        set -o pipefail
         gradle compileDebugKotlin --stacktrace 2>&1 | tee build-output.log
-        echo "EXIT_CODE=${PIPESTATUS[0]}" >> $GITHUB_ENV
 
     - name: Build APK
-      if: env.EXIT_CODE == '0'
       run: gradle assembleDebug
 
     - name: Upload APK
-      if: env.EXIT_CODE == '0'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
@@ -47,7 +43,3 @@ jobs:
       with:
         name: build-log
         path: build-output.log
-
-    - name: Fail if compile failed
-      if: env.EXIT_CODE != '0'
-      run: exit 1
