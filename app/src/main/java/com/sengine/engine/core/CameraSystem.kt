@@ -2,8 +2,6 @@ package com.sengine.engine.core
 
 import com.sengine.engine.render.View2D
 import kotlin.math.*
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * Advanced camera system with follow, smooth damping, shake, zoom, and boundary limits.

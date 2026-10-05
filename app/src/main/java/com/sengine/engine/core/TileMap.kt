@@ -1,8 +1,5 @@
 package com.sengine.engine.core
 
-import com.sengine.engine.math.Affine
-import com.sengine.engine.render.Renderer2D
-import com.sengine.engine.render.View2D
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.*
