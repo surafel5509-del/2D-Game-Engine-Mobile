@@ -9,11 +9,6 @@ import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
-import com.sengine.engine.core.TileMap
-import com.sengine.engine.core.Terrain
-import com.sengine.engine.physics.Joint
-import com.sengine.engine.physics.anchorAWorld
-import com.sengine.engine.physics.anchorBWorld
 import com.sengine.engine.math.Affine
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -91,15 +86,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
                 }
             }
             go.getAny<ParticleEmitter>()?.let { pe -> drawParticles(pe, ppu) }
-            // TileMap rendering
-            go.getAny<TileMap>()?.let { tm -> drawTileMap(tm, view) }
-            // Terrain rendering
-            go.getAny<Terrain>()?.let { terrain -> drawTerrain(terrain, view) }
         }
-        // Draw joints in editor mode
-        if (editor != null) drawJoints(view)
-        // Draw debug overlay
-        if (engine.debugOverlay.enabled && editor == null) drawDebugOverlay(view)
     }
 
     private fun drawParticles(pe: ParticleEmitter, ppu: Float) {
@@ -109,114 +96,6 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             if (size <= 0f) continue
             r.rect(p.x, p.y, size, size, lerpColor(pe.startColor, pe.endColor, t), 1, ppu)
         }
-    }
-
-    private fun drawTileMap(tm: TileMap, view: View2D) {
-        val go = tm.gameObject
-        val w = go.world
-        val tex = if (tm.tilesetTexture.isNotBlank()) textures.image(tm.tilesetTexture) else null
-        val ppu = view.pixelsPerUnit
-
-        for (layer in tm.layers) {
-            if (!layer.visible) continue
-            for ((col, row, tileId) in layer.enumerate()) {
-                if (tileId < 0) continue
-                // Calculate tile position in world space
-                val tileX = go.x + (col + 0.5f) * tm.tileWidth
-                val tileY = go.y + (row + 0.5f) * tm.tileHeight
-
-                // Check if tile is visible
-                val halfW = view.halfW + tm.tileWidth
-                val halfH = view.size + tm.tileHeight
-                if (abs(tileX - view.cx) > halfW || abs(tileY - view.cy) > halfH) continue
-
-                // Calculate atlas UV if texture exists
-                if (tex != null && tm.tilesetColumns > 0) {
-                    val atlasCol = tileId % tm.tilesetColumns
-                    val atlasRow = tileId / tm.tilesetColumns
-                    // For now, draw as colored rectangle (atlas UV mapping would need shader changes)
-                    tmp.a = tm.tileWidth * w.scaleX
-                    tmp.d = tm.tileHeight * w.scaleY
-                    tmp.tx = tileX
-                    tmp.ty = tileY
-                    val color = if (layer.opacity < 1f) {
-                        val a = (layer.opacity * 255).toInt()
-                        (a shl 24) or 0x00FFFFFF
-                    } else 0xFFFFFFFF.toInt()
-                    r.quad(tmp, color, 0, tex, ppu)
-                } else {
-                    // No texture: draw colored tile
-                    val tileColor = if (tileId == 0) 0xFF4CAF50.toInt()
-                    else if (tileId == 1) 0xFF795548.toInt()
-                    else (0xFF000000.toInt() or ((tileId * 37) and 0xFFFFFF))
-                    tmp.a = tm.tileWidth * w.scaleX
-                    tmp.d = tm.tileHeight * w.scaleY
-                    tmp.tx = tileX
-                    tmp.ty = tileY
-                    val alpha = (layer.opacity * 255).toInt()
-                    val color = (alpha shl 24) or (tileColor and 0x00FFFFFF)
-                    r.quad(tmp, color, 0, null, ppu)
-                }
-            }
-        }
-    }
-
-    private fun drawTerrain(terrain: Terrain, view: View2D) {
-        if (terrain.heights.isEmpty()) return
-        val go = terrain.gameObject
-        val resolution = terrain.resolution
-        val sampleCount = terrain.heights.size
-        val color = 0xFF4CAF50.toInt()
-
-        // Draw terrain as connected line segments
-        for (i in 0 until sampleCount - 1) {
-            val x1 = go.x + i * resolution
-            val y1 = go.y + terrain.heights[i]
-            val x2 = go.x + (i + 1) * resolution
-            val y2 = go.y + terrain.heights[i + 1]
-
-            // Only draw if visible
-            val halfW = view.halfW + resolution
-            if (abs((x1 + x2) * 0.5f - view.cx) > halfW) continue
-
-            r.line(x1, y1, x2, y2, color)
-        }
-        r.flushLines(3f)
-    }
-
-    private fun drawJoints(view: View2D) {
-        for (joint in engine.physics.joints) {
-            if (!joint.enabled) continue
-            val (ax, ay) = joint.anchorAWorld()
-            val (bx, by) = joint.anchorBWorld()
-            val color = when (joint) {
-                is com.sengine.engine.physics.DistanceJoint -> 0xFF4FC3F7.toInt()
-                is com.sengine.engine.physics.SpringJoint -> 0xFFFFA726.toInt()
-                is com.sengine.engine.physics.HingeJoint -> 0xFFAB47BC.toInt()
-                is com.sengine.engine.physics.WheelJoint -> 0xFF66BB6A.toInt()
-                is com.sengine.engine.physics.RopeJoint -> 0xFFEF5350.toInt()
-                else -> 0xFFCCCCCC.toInt()
-            }
-            r.line(ax, ay, bx, by, color)
-            r.circleLines(ax, ay, 0.1f, color, 12)
-            r.circleLines(bx, by, 0.1f, color, 12)
-        }
-        r.flushLines(2f)
-    }
-
-    private fun drawDebugOverlay(view: View2D) {
-        val text = engine.debugOverlay.formatStats(engine.profiler)
-        if (text.isEmpty()) return
-        // Render debug text at top-left of screen
-        val ppu = view.pixelsPerUnit
-        val tex = textures.text(text, false, 0)
-        val lines = text.count { it == '\n' } + 1
-        val hh = 0.4f * lines
-        val ww = hh * tex.w / tex.h
-        tmp.a = ww; tmp.d = hh
-        tmp.tx = view.cx - view.halfW + ww * 0.5f + 0.2f
-        tmp.ty = view.cy + view.size - hh * 0.5f - 0.2f
-        r.quad(tmp, 0xCC000000.toInt(), 0, tex, 100f)
     }
 
     private fun lerpColor(a: Int, b: Int, t: Float): Int {

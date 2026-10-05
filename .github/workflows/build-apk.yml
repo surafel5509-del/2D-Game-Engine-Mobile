@@ -13,8 +13,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -26,37 +24,12 @@ jobs:
       uses: gradle/actions/setup-gradle@v4
 
     - name: Compile Kotlin
-      id: compile
-      run: |
-        set +e
-        gradle compileDebugKotlin --stacktrace > /tmp/compile-output.log 2>&1
-        EXIT_CODE=$?
-        # Extract errors and write to a file at repo root
-        {
-          echo "=== COMPILATION ERRORS ==="
-          grep -E "^e: |error:|Unresolved|Cannot|Expecting|Type mismatch" /tmp/compile-output.log 2>/dev/null || echo "No matching error patterns found"
-          echo ""
-          echo "=== LAST 100 LINES OF BUILD OUTPUT ==="
-          tail -100 /tmp/compile-output.log
-        } > ${{ github.workspace }}/build-errors.txt
-        cat ${{ github.workspace }}/build-errors.txt
-        exit $EXIT_CODE
-
-    - name: Push build errors
-      if: always()
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add -f build-errors.txt
-        git diff --cached --quiet || git commit -m "chore: update build errors [skip ci]"
-        git push origin HEAD:${{ github.ref_name }} || echo "Push failed but continuing"
+      run: gradle compileDebugKotlin --stacktrace
 
     - name: Build APK
-      if: steps.compile.outcome == 'success'
       run: gradle assembleDebug
 
     - name: Upload APK
-      if: steps.compile.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
