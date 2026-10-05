@@ -213,11 +213,19 @@ class AudioSource : Component() {
     var playOnStart = true
     var loop = false
     var volume = 1f
+    var pitch = 1f
+    var pan = 0f
+    var spatial = false
+    var bus = "Master"
 
     override fun props() = listOf(
         Prop.Asset("Clip", AssetKind.SOUND, { clip }, { clip = it }),
         Prop.B("Play On Start", { playOnStart }, { playOnStart = it }),
         Prop.B("Loop", { loop }, { loop = it }),
         Prop.F("Volume", { volume }, { volume = it.coerceIn(0f, 1f) }, 0.05f),
+        Prop.F("Pitch", { pitch }, { pitch = it.coerceIn(0.1f, 3f) }, 0.05f),
+        Prop.F("Pan", { pan }, { pan = it.coerceIn(-1f, 1f) }, 0.05f),
+        Prop.B("Spatial", { spatial }, { spatial = it }),
+        Prop.S("Bus", { bus }, { bus = it }),
     )
 }
