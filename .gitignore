@@ -10,3 +10,6 @@ build/
 *.apk
 *.aab
 *.keystore
+
+__pycache__/
+*.py[cod]

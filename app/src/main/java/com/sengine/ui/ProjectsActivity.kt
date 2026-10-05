@@ -52,7 +52,7 @@ class ProjectsActivity : AppCompatActivity() {
         }
         val titleBox = vbox()
         titleBox.addView(label("S Engine", 28f, C.TEXT, true))
-        titleBox.addView(label("2D game engine & editor for Android  •  v1.0", 13f, C.DIM))
+        titleBox.addView(label("Android 2D game engine & editor  •  v2.1", 13f, C.DIM))
         header.addView(titleBox, lp(0, WRAP, 1f))
         header.addView(button("Import") { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
             lp(WRAP, WRAP).margins(0, 0, dp(8), 0))
@@ -196,7 +196,7 @@ class ProjectsActivity : AppCompatActivity() {
         MaterialAlertDialogBuilder(this)
             .setTitle("Delete ${p.name}?")
             .setMessage("This permanently deletes all scenes, scripts and assets of this project.")
-            .setPositiveButton("Delete") { _, _ -> ProjectManager.delete(p); refresh() }
+            .setPositiveButton("Delete") { _, _ -> ProjectManager.delete(this, p); refresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }

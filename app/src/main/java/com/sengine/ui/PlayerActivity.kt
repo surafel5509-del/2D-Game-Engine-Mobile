@@ -36,7 +36,14 @@ class PlayerActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val project = ProjectManager.open(this, intent.getStringExtra("project") ?: run { finish(); return })
+        val requestedProject = intent.getStringExtra("project")
+        val bundledGame = requestedProject.isNullOrBlank()
+        val project = try {
+            if (bundledGame) ProjectManager.installBundled(this) else ProjectManager.open(this, requestedProject!!)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "Game project could not be loaded: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            finish(); return
+        }
         requestedOrientation = if (project.orientation == 1) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         val sceneName = intent.getStringExtra("scene") ?: project.startScene
@@ -55,11 +62,13 @@ class PlayerActivity : AppCompatActivity() {
         }
         glView.setOnTouchListener { v, e -> forwardTouch(v, e); true }
         root.addView(glView)
-        root.addView(GameControlsView(this) { engine.input })
+        if (project.useTouchControls) root.addView(GameControlsView(this) { engine.input })
         fpsText = label("", 11f, 0x99FFFFFF.toInt()).apply { setPadding(dp(10), dp(6), 0, 0) }
-        root.addView(fpsText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
-        root.addView(button("✕", 0x55000000) { finish() },
-            FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(8), dp(8), 0) })
+        if (!bundledGame) {
+            root.addView(fpsText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
+            root.addView(button("✕", 0x55000000) { finish() },
+                FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(8), dp(8), 0) })
+        }
         setContentView(root)
         hideSystemUi()
         engine.play()

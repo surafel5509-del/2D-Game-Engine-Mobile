@@ -86,6 +86,17 @@ APP_BASE_NAME=${0##*/}
 # Discard cd standard output in case $CDPATH is set (https://github.com/gradle/gradle/issues/25036)
 APP_HOME=$( cd "${APP_HOME:-./}" > /dev/null && pwd -P ) || exit
 
+# Some source snapshots intentionally omit the small upstream wrapper JAR.
+# Prefer the selected Gradle CLI when available, instead of failing later with
+# a confusing GradleWrapperMain class-not-found error.
+if [ ! -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ]; then
+    if command -v gradle >/dev/null 2>&1; then
+        exec gradle "$@"
+    fi
+    echo "Gradle wrapper JAR is not vendored. Install Gradle 8.7 or use the GitHub Actions build workflow." >&2
+    exit 1
+fi
+
 # Use the maximum available, or set MAX_FD != -1 to use that value.
 MAX_FD=maximum
 

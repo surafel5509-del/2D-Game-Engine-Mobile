@@ -21,17 +21,18 @@ class TextureCache(private val project: Project) {
 
     fun clear() { images.clear(); stamps.clear(); texts.clear() }
 
-    fun image(name: String): Tex? {
+    fun image(name: String, pixelPerfect: Boolean = false): Tex? {
         if (name.isBlank()) return null
-        val f: File = project.assetFile(name)
-        val stamp = f.lastModified()
-        if (images.containsKey(name) && stamps[name] == stamp) return images[name]
-        images[name]?.let { GLES20.glDeleteTextures(1, intArrayOf(it.id), 0) }
+        val f: File = try { project.assetFile(name) } catch (_: IllegalArgumentException) { return null }
+        val stamp = f.lastModified() * 31L + f.length()
+        val key = "$name|$pixelPerfect"
+        if (images.containsKey(key) && stamps[key] == stamp) return images[key]
+        images[key]?.let { GLES20.glDeleteTextures(1, intArrayOf(it.id), 0) }
         val bmp = try { BitmapFactory.decodeFile(f.absolutePath) } catch (_: Throwable) { null }
-        val tex = bmp?.let { upload(it, maxOf(it.width, it.height) <= 128) }
+        val tex = bmp?.let { upload(it, pixelPerfect || maxOf(it.width, it.height) <= 128) }
         bmp?.recycle()
-        images[name] = tex
-        stamps[name] = stamp
+        images[key] = tex
+        stamps[key] = stamp
         return tex
     }
 

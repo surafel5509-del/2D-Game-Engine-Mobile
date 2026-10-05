@@ -7,6 +7,8 @@ import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.Scene
 import com.sengine.engine.core.SceneSerializer
+import com.sengine.engine.core.SpriteAnimator
+import com.sengine.engine.core.Rigidbody2D
 import com.sengine.engine.physics.PhysicsWorld
 import com.sengine.engine.render.View2D
 import com.sengine.engine.script.ScriptSystem
@@ -151,7 +153,7 @@ class Engine(val project: Project, initialScene: Scene) {
 
         when (mode) {
             Mode.PLAY -> runFrame(dt)
-            Mode.EDIT -> { scene.updateTransforms(); updateParticles(dt) }
+            Mode.EDIT -> { scene.updateTransforms(); updateAnimations(dt, previewOnly = true); updateParticles(dt) }
             Mode.PAUSED -> scene.updateTransforms()
         }
     }
@@ -163,6 +165,7 @@ class Engine(val project: Project, initialScene: Scene) {
         updateGameView()
         input.beginFrame(gameView)
         scripts.update(dt)
+        updateAnimations(dt, previewOnly = false)
         physics.step(scene, dt)
         cleanupDestroyed()
         scene.updateTransforms()
@@ -203,20 +206,40 @@ class Engine(val project: Project, initialScene: Scene) {
 
     private fun snapCameraToTarget() {
         val camGo = mainCamera() ?: return
-        val cam = camGo.get<Camera2D>()!!
-        if (cam.follow.isBlank()) return
+        val cam = camGo.get<Camera2D>() ?: return
         val t = scene.find(cam.follow) ?: return
-        camGo.setWorldPosition(t.world.tx, t.world.ty)
+        val rb = t.get<Rigidbody2D>()
+        camGo.setWorldPosition(
+            t.world.tx + cam.offsetX + (rb?.vx ?: 0f) * cam.lookAhead,
+            t.world.ty + cam.offsetY + (rb?.vy ?: 0f) * cam.lookAhead,
+        )
     }
 
     private fun updateCameraFollow(dt: Float) {
         val camGo = mainCamera() ?: return
-        val cam = camGo.get<Camera2D>()!!
-        if (cam.follow.isBlank()) return
-        val t = scene.find(cam.follow) ?: return
-        val w = camGo.computeWorld()
-        val k = if (cam.smoothing <= 0f) 1f else (1f - exp(-cam.smoothing * dt))
-        camGo.setWorldPosition(w.tx + (t.world.tx - w.tx) * k, w.ty + (t.world.ty - w.ty) * k)
+        val cam = camGo.get<Camera2D>() ?: return
+        val target = scene.find(cam.follow)
+        if (target != null) {
+            val targetBody = target.get<Rigidbody2D>()
+            val targetX = target.world.tx + cam.offsetX + (targetBody?.vx ?: 0f) * cam.lookAhead
+            val targetY = target.world.ty + cam.offsetY + (targetBody?.vy ?: 0f) * cam.lookAhead
+            val w = camGo.computeWorld()
+            val k = if (cam.smoothing <= 0f) 1f else (1f - exp(-cam.smoothing * dt))
+            camGo.setWorldPosition(w.tx + (targetX - w.tx) * k, w.ty + (targetY - w.ty) * k)
+        }
+
+        var w = camGo.computeWorld()
+        if (cam.limitEnabled) {
+            val halfW = cam.size * gameView.aspect
+            val left = cam.limitLeft + halfW
+            val right = cam.limitRight - halfW
+            val bottom = cam.limitBottom + cam.size
+            val top = cam.limitTop - cam.size
+            val x = if (left <= right) w.tx.coerceIn(left, right) else (cam.limitLeft + cam.limitRight) * 0.5f
+            val y = if (bottom <= top) w.ty.coerceIn(bottom, top) else (cam.limitBottom + cam.limitTop) * 0.5f
+            if (x != w.tx || y != w.ty) camGo.setWorldPosition(x, y)
+        }
+        cam.updateShake(dt)
     }
 
     fun updateGameView() {
@@ -226,11 +249,23 @@ class Engine(val project: Project, initialScene: Scene) {
             return
         }
         val w = camGo.computeWorld()
-        gameView.cx = w.tx; gameView.cy = w.ty
-        gameView.size = camGo.get<Camera2D>()!!.size
+        val cam = camGo.get<Camera2D>() ?: return
+        gameView.cx = w.tx + cam.shakeX
+        gameView.cy = w.ty + cam.shakeY
+        gameView.size = cam.size
     }
 
     fun backgroundColor(): Int = mainCamera()?.get<Camera2D>()?.background ?: 0xFF1B2533.toInt()
+
+    private fun updateAnimations(dt: Float, previewOnly: Boolean) {
+        for (go in scene.objects) {
+            if (!go.isActiveInHierarchy()) continue
+            val animator = go.get<SpriteAnimator>() ?: continue
+            if (previewOnly) {
+                if (animator.previewInEditor) animator.preview(dt)
+            } else animator.advance(dt)
+        }
+    }
 
     // ---------------------------------------------------------------- particles
     private fun updateParticles(dt: Float) {

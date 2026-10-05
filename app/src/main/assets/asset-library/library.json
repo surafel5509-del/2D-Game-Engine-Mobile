@@ -1,0 +1,1008 @@
+{
+  "name": "S Engine Original 2D Starter Library",
+  "version": 1,
+  "entryCount": 100,
+  "license": "CC0-1.0",
+  "entries": [
+    {
+      "id": "asset-001",
+      "name": "Adventurer",
+      "category": "Characters",
+      "path": "characters/01_adventurer.png",
+      "filename": "01_adventurer.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-002",
+      "name": "Knight",
+      "category": "Characters",
+      "path": "characters/02_knight.png",
+      "filename": "02_knight.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-003",
+      "name": "Forest Ranger",
+      "category": "Characters",
+      "path": "characters/03_forest_ranger.png",
+      "filename": "03_forest_ranger.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-004",
+      "name": "Mage",
+      "category": "Characters",
+      "path": "characters/04_mage.png",
+      "filename": "04_mage.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-005",
+      "name": "Rogue",
+      "category": "Characters",
+      "path": "characters/05_rogue.png",
+      "filename": "05_rogue.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-006",
+      "name": "Robot",
+      "category": "Characters",
+      "path": "characters/06_robot.png",
+      "filename": "06_robot.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-007",
+      "name": "Slime",
+      "category": "Characters",
+      "path": "characters/07_slime.png",
+      "filename": "07_slime.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-008",
+      "name": "Skeleton",
+      "category": "Characters",
+      "path": "characters/08_skeleton.png",
+      "filename": "08_skeleton.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-009",
+      "name": "Orc",
+      "category": "Characters",
+      "path": "characters/09_orc.png",
+      "filename": "09_orc.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-010",
+      "name": "Space Pilot",
+      "category": "Characters",
+      "path": "characters/10_space_pilot.png",
+      "filename": "10_space_pilot.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-011",
+      "name": "Ninja",
+      "category": "Characters",
+      "path": "characters/11_ninja.png",
+      "filename": "11_ninja.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-012",
+      "name": "Miner",
+      "category": "Characters",
+      "path": "characters/12_miner.png",
+      "filename": "12_miner.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-013",
+      "name": "Alien",
+      "category": "Characters",
+      "path": "characters/13_alien.png",
+      "filename": "13_alien.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-014",
+      "name": "Pirate",
+      "category": "Characters",
+      "path": "characters/14_pirate.png",
+      "filename": "14_pirate.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-015",
+      "name": "Archer",
+      "category": "Characters",
+      "path": "characters/15_archer.png",
+      "filename": "15_archer.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-016",
+      "name": "Fire Sprite",
+      "category": "Characters",
+      "path": "characters/16_fire_sprite.png",
+      "filename": "16_fire_sprite.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-017",
+      "name": "Ice Sprite",
+      "category": "Characters",
+      "path": "characters/17_ice_sprite.png",
+      "filename": "17_ice_sprite.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-018",
+      "name": "Engineer",
+      "category": "Characters",
+      "path": "characters/18_engineer.png",
+      "filename": "18_engineer.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-019",
+      "name": "Viking",
+      "category": "Characters",
+      "path": "characters/19_viking.png",
+      "filename": "19_viking.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-020",
+      "name": "Bat Monster",
+      "category": "Characters",
+      "path": "characters/20_bat_monster.png",
+      "filename": "20_bat_monster.png",
+      "description": "64\u00d764 original pixel-art character sprite with transparent background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-021",
+      "name": "Wood Crate",
+      "category": "Objects",
+      "path": "objects/01_wood_crate.png",
+      "filename": "01_wood_crate.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-022",
+      "name": "Steel Barrel",
+      "category": "Objects",
+      "path": "objects/02_steel_barrel.png",
+      "filename": "02_steel_barrel.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-023",
+      "name": "Health Potion",
+      "category": "Objects",
+      "path": "objects/03_health_potion.png",
+      "filename": "03_health_potion.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-024",
+      "name": "Mana Potion",
+      "category": "Objects",
+      "path": "objects/04_mana_potion.png",
+      "filename": "04_mana_potion.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-025",
+      "name": "Gold Coin",
+      "category": "Objects",
+      "path": "objects/05_gold_coin.png",
+      "filename": "05_gold_coin.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-026",
+      "name": "Silver Key",
+      "category": "Objects",
+      "path": "objects/06_silver_key.png",
+      "filename": "06_silver_key.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-027",
+      "name": "Treasure Chest",
+      "category": "Objects",
+      "path": "objects/07_treasure_chest.png",
+      "filename": "07_treasure_chest.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-028",
+      "name": "Heart Pickup",
+      "category": "Objects",
+      "path": "objects/08_heart_pickup.png",
+      "filename": "08_heart_pickup.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-029",
+      "name": "Blue Gem",
+      "category": "Objects",
+      "path": "objects/09_blue_gem.png",
+      "filename": "09_blue_gem.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-030",
+      "name": "Torch",
+      "category": "Objects",
+      "path": "objects/10_torch.png",
+      "filename": "10_torch.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-031",
+      "name": "Stone Pillar",
+      "category": "Objects",
+      "path": "objects/11_stone_pillar.png",
+      "filename": "11_stone_pillar.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-032",
+      "name": "Oak Tree",
+      "category": "Objects",
+      "path": "objects/12_oak_tree.png",
+      "filename": "12_oak_tree.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-033",
+      "name": "Red Mushroom",
+      "category": "Objects",
+      "path": "objects/13_red_mushroom.png",
+      "filename": "13_red_mushroom.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-034",
+      "name": "Bomb",
+      "category": "Objects",
+      "path": "objects/14_bomb.png",
+      "filename": "14_bomb.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-035",
+      "name": "Magic Portal",
+      "category": "Objects",
+      "path": "objects/15_magic_portal.png",
+      "filename": "15_magic_portal.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-036",
+      "name": "Wooden Sign",
+      "category": "Objects",
+      "path": "objects/16_wooden_sign.png",
+      "filename": "16_wooden_sign.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-037",
+      "name": "Lantern",
+      "category": "Objects",
+      "path": "objects/17_lantern.png",
+      "filename": "17_lantern.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-038",
+      "name": "Crystal",
+      "category": "Objects",
+      "path": "objects/18_crystal.png",
+      "filename": "18_crystal.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-039",
+      "name": "Door",
+      "category": "Objects",
+      "path": "objects/19_door.png",
+      "filename": "19_door.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-040",
+      "name": "Checkpoint Flag",
+      "category": "Objects",
+      "path": "objects/20_checkpoint_flag.png",
+      "filename": "20_checkpoint_flag.png",
+      "description": "64\u00d764 original pixel-art gameplay prop or pickup.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-041",
+      "name": "Dawn Valley",
+      "category": "Backgrounds",
+      "path": "backgrounds/01_dawn_valley.png",
+      "filename": "01_dawn_valley.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-042",
+      "name": "Sunset Hills",
+      "category": "Backgrounds",
+      "path": "backgrounds/02_sunset_hills.png",
+      "filename": "02_sunset_hills.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-043",
+      "name": "Midnight City",
+      "category": "Backgrounds",
+      "path": "backgrounds/03_midnight_city.png",
+      "filename": "03_midnight_city.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-044",
+      "name": "Deep Space",
+      "category": "Backgrounds",
+      "path": "backgrounds/04_deep_space.png",
+      "filename": "04_deep_space.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-045",
+      "name": "Nebula Drift",
+      "category": "Backgrounds",
+      "path": "backgrounds/05_nebula_drift.png",
+      "filename": "05_nebula_drift.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-046",
+      "name": "Ocean Depths",
+      "category": "Backgrounds",
+      "path": "backgrounds/06_ocean_depths.png",
+      "filename": "06_ocean_depths.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-047",
+      "name": "Coral Reef",
+      "category": "Backgrounds",
+      "path": "backgrounds/07_coral_reef.png",
+      "filename": "07_coral_reef.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-048",
+      "name": "Pine Forest",
+      "category": "Backgrounds",
+      "path": "backgrounds/08_pine_forest.png",
+      "filename": "08_pine_forest.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-049",
+      "name": "Autumn Woods",
+      "category": "Backgrounds",
+      "path": "backgrounds/09_autumn_woods.png",
+      "filename": "09_autumn_woods.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-050",
+      "name": "Desert Dunes",
+      "category": "Backgrounds",
+      "path": "backgrounds/10_desert_dunes.png",
+      "filename": "10_desert_dunes.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-051",
+      "name": "Frozen Peaks",
+      "category": "Backgrounds",
+      "path": "backgrounds/11_frozen_peaks.png",
+      "filename": "11_frozen_peaks.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-052",
+      "name": "Volcanic Ridge",
+      "category": "Backgrounds",
+      "path": "backgrounds/12_volcanic_ridge.png",
+      "filename": "12_volcanic_ridge.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-053",
+      "name": "Crystal Cave",
+      "category": "Backgrounds",
+      "path": "backgrounds/13_crystal_cave.png",
+      "filename": "13_crystal_cave.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-054",
+      "name": "Cloud Kingdom",
+      "category": "Backgrounds",
+      "path": "backgrounds/14_cloud_kingdom.png",
+      "filename": "14_cloud_kingdom.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-055",
+      "name": "Moon Surface",
+      "category": "Backgrounds",
+      "path": "backgrounds/15_moon_surface.png",
+      "filename": "15_moon_surface.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-056",
+      "name": "Rainy Harbor",
+      "category": "Backgrounds",
+      "path": "backgrounds/16_rainy_harbor.png",
+      "filename": "16_rainy_harbor.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-057",
+      "name": "Meadow Day",
+      "category": "Backgrounds",
+      "path": "backgrounds/17_meadow_day.png",
+      "filename": "17_meadow_day.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-058",
+      "name": "Storm Front",
+      "category": "Backgrounds",
+      "path": "backgrounds/18_storm_front.png",
+      "filename": "18_storm_front.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-059",
+      "name": "Starfield Blue",
+      "category": "Backgrounds",
+      "path": "backgrounds/19_starfield_blue.png",
+      "filename": "19_starfield_blue.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-060",
+      "name": "Pixel Grid Night",
+      "category": "Backgrounds",
+      "path": "backgrounds/20_pixel_grid_night.png",
+      "filename": "20_pixel_grid_night.png",
+      "description": "320\u00d7180 original parallax-ready 2D landscape background.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-061",
+      "name": "Coin",
+      "category": "Sounds",
+      "path": "sounds/01_coin.wav",
+      "filename": "01_coin.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-062",
+      "name": "Jump",
+      "category": "Sounds",
+      "path": "sounds/02_jump.wav",
+      "filename": "02_jump.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-063",
+      "name": "Land",
+      "category": "Sounds",
+      "path": "sounds/03_land.wav",
+      "filename": "03_land.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-064",
+      "name": "Hit",
+      "category": "Sounds",
+      "path": "sounds/04_hit.wav",
+      "filename": "04_hit.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-065",
+      "name": "Explosion",
+      "category": "Sounds",
+      "path": "sounds/05_explosion.wav",
+      "filename": "05_explosion.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-066",
+      "name": "Laser",
+      "category": "Sounds",
+      "path": "sounds/06_laser.wav",
+      "filename": "06_laser.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-067",
+      "name": "Power Up",
+      "category": "Sounds",
+      "path": "sounds/07_power_up.wav",
+      "filename": "07_power_up.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-068",
+      "name": "UI Click",
+      "category": "Sounds",
+      "path": "sounds/08_ui_click.wav",
+      "filename": "08_ui_click.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-069",
+      "name": "UI Confirm",
+      "category": "Sounds",
+      "path": "sounds/09_ui_confirm.wav",
+      "filename": "09_ui_confirm.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-070",
+      "name": "Door Open",
+      "category": "Sounds",
+      "path": "sounds/10_door_open.wav",
+      "filename": "10_door_open.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-071",
+      "name": "Footstep",
+      "category": "Sounds",
+      "path": "sounds/11_footstep.wav",
+      "filename": "11_footstep.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-072",
+      "name": "Heart Beat",
+      "category": "Sounds",
+      "path": "sounds/12_heart_beat.wav",
+      "filename": "12_heart_beat.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-073",
+      "name": "Wind Gust",
+      "category": "Sounds",
+      "path": "sounds/13_wind_gust.wav",
+      "filename": "13_wind_gust.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-074",
+      "name": "Rain Drop",
+      "category": "Sounds",
+      "path": "sounds/14_rain_drop.wav",
+      "filename": "14_rain_drop.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-075",
+      "name": "Error",
+      "category": "Sounds",
+      "path": "sounds/15_error.wav",
+      "filename": "15_error.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-076",
+      "name": "Victory",
+      "category": "Sounds",
+      "path": "sounds/16_victory.wav",
+      "filename": "16_victory.wav",
+      "description": "Original synthesized short mono game sound effect (22.05 kHz PCM WAV).",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-077",
+      "name": "HorizontalMove",
+      "category": "Behaviors",
+      "path": "scripts/HorizontalMove.js",
+      "filename": "HorizontalMove.js",
+      "description": "Horizontal movement. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-078",
+      "name": "TopDownMove",
+      "category": "Behaviors",
+      "path": "scripts/TopDownMove.js",
+      "filename": "TopDownMove.js",
+      "description": "Top-down 8-way movement. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-079",
+      "name": "JumpController",
+      "category": "Behaviors",
+      "path": "scripts/JumpController.js",
+      "filename": "JumpController.js",
+      "description": "Variable-height jump. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-080",
+      "name": "Patrol",
+      "category": "Behaviors",
+      "path": "scripts/Patrol.js",
+      "filename": "Patrol.js",
+      "description": "Ping-pong patrol. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-081",
+      "name": "Collectible",
+      "category": "Behaviors",
+      "path": "scripts/Collectible.js",
+      "filename": "Collectible.js",
+      "description": "Collectible trigger. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-082",
+      "name": "HealthDamage",
+      "category": "Behaviors",
+      "path": "scripts/HealthDamage.js",
+      "filename": "HealthDamage.js",
+      "description": "Damage on collision. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-083",
+      "name": "Projectile",
+      "category": "Behaviors",
+      "path": "scripts/Projectile.js",
+      "filename": "Projectile.js",
+      "description": "Timed projectile. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-084",
+      "name": "RotateBob",
+      "category": "Behaviors",
+      "path": "scripts/RotateBob.js",
+      "filename": "RotateBob.js",
+      "description": "Floating, rotating pickup. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-085",
+      "name": "ScreenBounds",
+      "category": "Behaviors",
+      "path": "scripts/ScreenBounds.js",
+      "filename": "ScreenBounds.js",
+      "description": "Keep an object inside a camera-sized region. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-086",
+      "name": "SpawnTimer",
+      "category": "Behaviors",
+      "path": "scripts/SpawnTimer.js",
+      "filename": "SpawnTimer.js",
+      "description": "Periodic object spawner. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-087",
+      "name": "CameraShakeOnHit",
+      "category": "Behaviors",
+      "path": "scripts/CameraShakeOnHit.js",
+      "filename": "CameraShakeOnHit.js",
+      "description": "Camera feedback on collision. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-088",
+      "name": "TapToDestroy",
+      "category": "Behaviors",
+      "path": "scripts/TapToDestroy.js",
+      "filename": "TapToDestroy.js",
+      "description": "Tap to remove an object. JavaScript behavior source; attach to a Script component.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-089",
+      "name": "tint",
+      "category": "Shader Sources",
+      "path": "shaders/tint.frag",
+      "filename": "tint.frag",
+      "description": "Texture tint. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-090",
+      "name": "grayscale",
+      "category": "Shader Sources",
+      "path": "shaders/grayscale.frag",
+      "filename": "grayscale.frag",
+      "description": "Grayscale. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-091",
+      "name": "pixel-dither",
+      "category": "Shader Sources",
+      "path": "shaders/pixel-dither.frag",
+      "filename": "pixel-dither.frag",
+      "description": "Ordered pixel dither. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-092",
+      "name": "outline",
+      "category": "Shader Sources",
+      "path": "shaders/outline.frag",
+      "filename": "outline.frag",
+      "description": "Sprite outline. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-093",
+      "name": "heat",
+      "category": "Shader Sources",
+      "path": "shaders/heat.frag",
+      "filename": "heat.frag",
+      "description": "Heat palette. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-094",
+      "name": "vignette",
+      "category": "Shader Sources",
+      "path": "shaders/vignette.frag",
+      "filename": "vignette.frag",
+      "description": "Vignette. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-095",
+      "name": "dissolve",
+      "category": "Shader Sources",
+      "path": "shaders/dissolve.frag",
+      "filename": "dissolve.frag",
+      "description": "Threshold dissolve. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-096",
+      "name": "water",
+      "category": "Shader Sources",
+      "path": "shaders/water.frag",
+      "filename": "water.frag",
+      "description": "Animated water ripple. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-097",
+      "name": "glow",
+      "category": "Shader Sources",
+      "path": "shaders/glow.frag",
+      "filename": "glow.frag",
+      "description": "Soft radial glow. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-098",
+      "name": "palette",
+      "category": "Shader Sources",
+      "path": "shaders/palette.frag",
+      "filename": "palette.frag",
+      "description": "Warm palette remap. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-099",
+      "name": "sepia",
+      "category": "Shader Sources",
+      "path": "shaders/sepia.frag",
+      "filename": "sepia.frag",
+      "description": "Sepia tone. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    },
+    {
+      "id": "asset-100",
+      "name": "scanline",
+      "category": "Shader Sources",
+      "path": "shaders/scanline.frag",
+      "filename": "scanline.frag",
+      "description": "Retro scanlines. GLSL ES 1.00 fragment shader example for future/custom render pipelines.",
+      "license": "CC0-1.0",
+      "source": "Original procedural S Engine starter content"
+    }
+  ]
+}

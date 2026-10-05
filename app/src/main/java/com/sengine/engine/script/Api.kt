@@ -2,13 +2,14 @@ package com.sengine.engine.script
 
 import com.sengine.engine.Engine
 import com.sengine.engine.core.Camera2D
-import com.sengine.engine.core.Collider2D
 import com.sengine.engine.core.Component
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.Rigidbody2D
+import com.sengine.engine.core.SpriteAnimator
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.physics.PhysicsWorld
 import org.mozilla.javascript.Context
 import kotlin.math.sqrt
 
@@ -46,29 +47,27 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
     fun move(dx: Double, dy: Double) { go.x += dx.toFloat(); go.y += dy.toFloat() }
     fun rotate(deg: Double) { go.rotation += deg.toFloat() }
 
-    // physics
+    // Physics forces are accumulated and integrated by the fixed-step solver.
     fun getVx(): Double = (go.getAny<Rigidbody2D>()?.vx ?: 0f).toDouble()
     fun setVx(v: Double) { go.getAny<Rigidbody2D>()?.vx = v.toFloat() }
     fun getVy(): Double = (go.getAny<Rigidbody2D>()?.vy ?: 0f).toDouble()
     fun setVy(v: Double) { go.getAny<Rigidbody2D>()?.vy = v.toFloat() }
+    fun getAngularVelocity(): Double = (go.getAny<Rigidbody2D>()?.angularVelocity ?: 0f).toDouble()
+    fun setAngularVelocity(v: Double) { go.getAny<Rigidbody2D>()?.angularVelocity = v.toFloat() }
     fun isGrounded(): Boolean = go.getAny<Rigidbody2D>()?.grounded ?: false
-    fun addForce(fx: Double, fy: Double) {
-        val rb = go.getAny<Rigidbody2D>() ?: return
-        rb.vx += (fx / rb.mass).toFloat(); rb.vy += (fy / rb.mass).toFloat()
+    fun addForce(fx: Double, fy: Double) { go.getAny<Rigidbody2D>()?.applyForce(fx.toFloat(), fy.toFloat()) }
+    fun addImpulse(ix: Double, iy: Double) { go.getAny<Rigidbody2D>()?.applyImpulse(ix.toFloat(), iy.toFloat()) }
+    fun addTorque(value: Double) { go.getAny<Rigidbody2D>()?.applyTorque(value.toFloat()) }
+    fun addAngularImpulse(degreesPerSecond: Double) {
+        go.getAny<Rigidbody2D>()?.applyAngularImpulse(degreesPerSecond.toFloat())
     }
     fun setVelocity(vx: Double, vy: Double) {
         val rb = go.getAny<Rigidbody2D>() ?: return
         rb.vx = vx.toFloat(); rb.vy = vy.toFloat()
     }
-    fun overlaps(other: SObject): Boolean {
-        val a = go.computeWorld(); val b = other.go.computeWorld()
-        val ca = go.getAny<Collider2D>(); val cb = other.go.getAny<Collider2D>()
-        val aw = (ca?.width ?: 1f) * a.scaleX / 2; val ah = (ca?.height ?: 1f) * a.scaleY / 2
-        val bw = (cb?.width ?: 1f) * b.scaleX / 2; val bh = (cb?.height ?: 1f) * b.scaleY / 2
-        return kotlin.math.abs(a.tx - b.tx) < aw + bw && kotlin.math.abs(a.ty - b.ty) < ah + bh
-    }
+    fun overlaps(other: SObject): Boolean = engine.physics.areOverlapping(go, other.go)
 
-    // rendering
+    // Rendering and animation
     fun getText(): String = go.getAny<TextRenderer>()?.text ?: ""
     fun setText(v: Any?) { go.getAny<TextRenderer>()?.text = Context.toString(v) }
     fun getColor(): String {
@@ -76,7 +75,7 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
         return String.format("#%08X", c)
     }
     fun setColor(hex: String) {
-        val c = try { Component.parseColor(hex) } catch (e: Exception) { return }
+        val c = try { Component.parseColor(hex) } catch (_: Exception) { return }
         go.getAny<SpriteRenderer>()?.color = c
         go.getAny<TextRenderer>()?.color = c
     }
@@ -88,16 +87,22 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
     fun setTexture(name: String) { go.getAny<SpriteRenderer>()?.texture = name }
     fun getFlipX(): Boolean = go.getAny<SpriteRenderer>()?.flipX ?: false
     fun setFlipX(v: Boolean) { go.getAny<SpriteRenderer>()?.flipX = v }
+    fun getAnimationFrame(): Double = (go.getAny<SpriteAnimator>()?.frame ?: 0).toDouble()
+    fun playAnimation() { go.getAny<SpriteAnimator>()?.play() }
+    fun stopAnimation() { go.getAny<SpriteAnimator>()?.stop() }
 
-    // particles
-    fun burst(n: Double) { go.getAny<ParticleEmitter>()?.let { it.pendingBurst += n.toInt() } }
+    // Particles
+    fun burst(n: Double) { go.getAny<ParticleEmitter>()?.let { it.pendingBurst += n.toInt().coerceAtLeast(0) } }
     fun setEmitting(v: Boolean) { go.getAny<ParticleEmitter>()?.emitting = v }
 
-    // camera
+    // Camera
     fun getSize(): Double = (go.getAny<Camera2D>()?.size ?: 0f).toDouble()
     fun setSize(v: Double) { go.getAny<Camera2D>()?.size = v.toFloat() }
+    fun shake(magnitude: Double, duration: Double) {
+        go.getAny<Camera2D>()?.shake(magnitude.toFloat(), duration.toFloat())
+    }
 
-    // hierarchy & lifecycle
+    // Hierarchy and lifecycle
     fun getParent(): Any? = go.parent?.let { sys.toJs(it) }
     fun child(name: String): Any? = engine.scene.childrenOf(go).firstOrNull { it.name == name }?.let { sys.toJs(it) }
     fun destroy() { go.destroyed = true }
@@ -136,8 +141,8 @@ class SScene(private val engine: Engine, private val sys: ScriptSystem) {
         return sys.toJs(copy)
     }
     fun spawn(name: String): Any? {
-        val t = engine.scene.find(name) ?: return null
-        val w = t.computeWorld()
+        val template = engine.scene.find(name) ?: return null
+        val w = template.computeWorld()
         return spawn(name, w.tx.toDouble(), w.ty.toDouble())
     }
     fun load(sceneName: String) = engine.requestLoadScene(sceneName)
@@ -147,6 +152,35 @@ class SScene(private val engine: Engine, private val sys: ScriptSystem) {
     fun setGravityX(v: Double) { engine.scene.gravityX = v.toFloat() }
     fun getGravityY(): Double = engine.scene.gravityY.toDouble()
     fun setGravityY(v: Double) { engine.scene.gravityY = v.toFloat() }
+}
+
+class SPhysics(private val engine: Engine, private val sys: ScriptSystem) {
+    fun raycast(x: Double, y: Double, dx: Double, dy: Double, maxDistance: Double): Any? =
+        engine.physics.raycast(engine.scene, x.toFloat(), y.toFloat(), dx.toFloat(), dy.toFloat(), maxDistance.toFloat())
+            ?.let { SPhysicsHit(it, sys) }
+
+    fun raycast(x: Double, y: Double, dx: Double, dy: Double, maxDistance: Double, layerMask: Double): Any? =
+        engine.physics.raycast(engine.scene, x.toFloat(), y.toFloat(), dx.toFloat(), dy.toFloat(), maxDistance.toFloat(), layerMask.toInt())
+            ?.let { SPhysicsHit(it, sys) }
+
+    fun circleCast(x: Double, y: Double, dx: Double, dy: Double, maxDistance: Double, radius: Double): Any? =
+        engine.physics.circleCast(engine.scene, x.toFloat(), y.toFloat(), dx.toFloat(), dy.toFloat(), maxDistance.toFloat(), radius.toFloat())
+            ?.let { SPhysicsHit(it, sys) }
+
+    fun overlapCircle(x: Double, y: Double, radius: Double): Any? =
+        sys.newArray(engine.physics.overlapCircle(engine.scene, x.toFloat(), y.toFloat(), radius.toFloat()).map { sys.toJs(it) })
+
+    fun overlapArea(x: Double, y: Double, width: Double, height: Double): Any? =
+        sys.newArray(engine.physics.overlapArea(engine.scene, x.toFloat(), y.toFloat(), width.toFloat(), height.toFloat()).map { sys.toJs(it) })
+}
+
+class SPhysicsHit(private val hit: PhysicsWorld.RaycastHit, private val sys: ScriptSystem) {
+    fun getGameObject(): Any? = sys.toJs(hit.gameObject)
+    fun getPointX(): Double = hit.pointX.toDouble()
+    fun getPointY(): Double = hit.pointY.toDouble()
+    fun getNormalX(): Double = hit.normalX.toDouble()
+    fun getNormalY(): Double = hit.normalY.toDouble()
+    fun getDistance(): Double = hit.distance.toDouble()
 }
 
 /** Plain public fields (Rhino exposes them with their exact names, e.g. input.aDown). */

@@ -111,6 +111,18 @@ class EngineSimulationTest {
     }
 
     @Test
+    fun topDownRacerUsesTouchAxisAndTriggerCallbacks() {
+        val run = start(newProject(4))
+        val car = run.engine.scene.find("Car")!!
+        val startY = car.y
+        run.frames(60) { run.engine.input.joyY = 1f }
+        assertTrue("throttle should move the car", car.y > startY + 1f)
+        val lapLabel = run.engine.scene.find("Lap")!!.getAny<com.sengine.engine.core.TextRenderer>()!!.text
+        assertEquals("LAP 1", lapLabel)
+        assertTrue("script errors: ${run.errors}", run.errors.isEmpty())
+    }
+
+    @Test
     fun physicsSandboxTapSpawns() {
         val r = start(newProject(3))
         val before = r.engine.scene.objects.size
@@ -125,6 +137,31 @@ class EngineSimulationTest {
         assertEquals(before + 2, after)
         assertTrue("crates should rest on the floor", crates.minOf { it.y } > -6.5f)
         assertTrue("script errors: ${r.errors}", r.errors.isEmpty())
+    }
+
+    @Test
+    fun scriptPhysicsQueriesAreCallableFromRhino() {
+        val p = newProject(0)
+        p.writeAsset("PhysicsProbe.js", """
+var queried = false;
+function update(dt) {
+    if (queried) return;
+    queried = true;
+    var hit = physics.raycast(0, 0, 0, -1, 5);
+    if (hit) log("ray=" + hit.gameObject.name + ":" + hit.distance.toFixed(1));
+    var nearby = physics.overlapCircle(0, -2, 1);
+    log("overlaps=" + nearby.length);
+}
+""")
+        val scene = p.loadScene("Main")
+        scene.create("Target").also { it.y = -2f }.add(com.sengine.engine.core.Collider2D())
+        scene.create("Physics Probe").add(com.sengine.engine.core.ScriptComponent().also { it.script = "PhysicsProbe.js" })
+        p.saveScene(scene)
+        val run = start(p)
+        run.frames(3)
+        assertTrue("raycast result was not reported: ${run.logs}", run.logs.any { it.contains("ray=Target") })
+        assertTrue("overlap query was not reported: ${run.logs}", run.logs.any { it.contains("overlaps=") })
+        assertTrue("script errors: ${run.errors}", run.errors.isEmpty())
     }
 
     @Test

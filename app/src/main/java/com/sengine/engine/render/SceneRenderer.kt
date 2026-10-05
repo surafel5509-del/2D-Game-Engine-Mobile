@@ -8,6 +8,7 @@ import com.sengine.engine.core.Collider2D
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.SpriteRenderer
+import com.sengine.engine.core.SpriteAnimator
 import com.sengine.engine.core.TextRenderer
 import com.sengine.engine.math.Affine
 import javax.microedition.khronos.egl.EGLConfig
@@ -16,6 +17,7 @@ import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.round
 
 /**
  * Draws the scene. When [editor] is non-null and the engine is in edit mode,
@@ -26,8 +28,18 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     private val r = Renderer2D()
     private val textures = TextureCache(engine.project)
     private var lastNs = 0L
+    @Volatile var drawCalls = 0
+        private set
+    @Volatile var spritesSubmitted = 0
+        private set
+    @Volatile var textureBinds = 0
+        private set
+    @Volatile var renderTimeMs = 0f
+        private set
     private val tmp = Affine()
     private val tmp2 = Affine()
+    private val pixelView = View2D()
+    private val uvScratch = FloatArray(4)
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         r.init()
@@ -42,25 +54,43 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        val now = System.nanoTime()
+        val startedNs = System.nanoTime()
+        val now = startedNs
         val dt = ((now - lastNs) / 1e9f).coerceIn(0f, 0.1f)
         lastNs = now
         synchronized(engine.lock) {
             engine.tick(dt)
             val editing = editor != null && engine.mode == Engine.Mode.EDIT
             val view = if (editing) editor!!.view else engine.gameView
+            val camera = if (editing) null else engine.mainCamera()?.get<Camera2D>()
+            val pixelPerfect = camera?.pixelPerfect == true
+            val renderView = if (pixelPerfect) pixelSnappedView(view) else view
             val bg = engine.backgroundColor()
             val bgEdit = if (editing) 0xFF262B33.toInt() else bg
             GLES20.glClearColor(GL.r(bgEdit), GL.g(bgEdit), GL.b(bgEdit), 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            r.begin(view)
-            if (editing && editor!!.showGrid) drawGrid(view)
-            drawScene(view)
-            if (editing) drawEditorOverlay(view, editor!!)
+            r.begin(renderView, pixelPerfect)
+            if (editing && editor!!.showGrid) drawGrid(renderView)
+            drawScene(renderView, pixelPerfect)
+            if (editing) drawEditorOverlay(renderView, editor!!)
+            r.flush()
+            drawCalls = r.drawCalls
+            spritesSubmitted = r.spritesSubmitted
+            textureBinds = r.textureBinds
+            renderTimeMs = (System.nanoTime() - startedNs) / 1_000_000f
         }
     }
 
-    private fun drawScene(view: View2D) {
+    private fun pixelSnappedView(source: View2D): View2D {
+        pixelView.copyFrom(source)
+        val view = pixelView
+        val step = 1f / view.pixelsPerUnit.coerceAtLeast(0.0001f)
+        view.cx = round(view.cx / step) * step
+        view.cy = round(view.cy / step) * step
+        return view
+    }
+
+    private fun drawScene(view: View2D, pixelPerfect: Boolean) {
         val scene = engine.scene
         val ppu = view.pixelsPerUnit
         val list = scene.objects.withIndex()
@@ -69,9 +99,15 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         for ((_, go) in list) {
             val w = go.world
             go.get<SpriteRenderer>()?.let { sr ->
-                val tex = if (sr.texture.isNotBlank()) textures.image(sr.texture) else null
+                val tex = if (sr.texture.isNotBlank()) textures.image(sr.texture, pixelPerfect) else null
+                val animator = go.get<SpriteAnimator>()
+                if (animator != null) animator.atlasUv(sr, uvScratch)
+                else {
+                    uvScratch[0] = sr.uvX; uvScratch[1] = sr.uvY
+                    uvScratch[2] = sr.uvWidth; uvScratch[3] = sr.uvHeight
+                }
                 r.quad(w, sr.color, if (tex != null) 0 else sr.shape, tex,
-                    min(w.scaleX, w.scaleY) * ppu, sr.flipX, sr.flipY)
+                    min(w.scaleX, w.scaleY) * ppu, sr.flipX, sr.flipY, uvScratch)
             }
             go.get<TextRenderer>()?.let { tr ->
                 if (tr.text.isNotEmpty()) {

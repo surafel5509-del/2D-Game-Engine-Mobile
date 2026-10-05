@@ -48,6 +48,7 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         put(g, "time", STime(engine))
         put(g, "scene", SScene(engine, this))
         put(g, "audio", SAudio(engine))
+        put(g, "physics", SPhysics(engine, this))
         put(g, "console", SConsole(engine))
         c.evaluateString(g, PRELUDE, "prelude", 1, null)
         compiled.clear()
@@ -216,6 +217,10 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         dispatch(a, "onCollision", b); dispatch(b, "onCollision", a)
     }
 
+    override fun onCollisionExit(a: GameObject, b: GameObject) {
+        dispatch(a, "onCollisionExit", b); dispatch(b, "onCollisionExit", a)
+    }
+
     override fun onTriggerEnter(a: GameObject, b: GameObject) {
         dispatch(a, "onTrigger", b); dispatch(b, "onTrigger", a)
     }
@@ -233,6 +238,7 @@ function random(a, b) { if (a === undefined) return Math.random(); return a + Ma
 function randomInt(a, b) { return Math.floor(random(a, b + 1)); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
+function cameraShake(amount, duration) { var c = scene.getCamera(); if (c) c.shake(amount, duration); }
 var __timers = [];
 function after(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: 0 }); }
 function every(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: sec }); }

@@ -145,7 +145,18 @@ object SceneSerializer {
             s.objects.add(go)
             maxId = maxOf(maxId, go.id)
         }
-        for ((go, pid) in parents) go.parent = s.findById(pid)
+        // Resolve references defensively: corrupted/imported scenes must not be
+        // able to create self-parent or cyclic hierarchies that recurse forever.
+        for ((go, pid) in parents) {
+            val candidate = s.findById(pid) ?: continue
+            var ancestor: GameObject? = candidate
+            var cyclic = false
+            while (ancestor != null) {
+                if (ancestor === go) { cyclic = true; break }
+                ancestor = ancestor.parent
+            }
+            if (!cyclic) go.parent = candidate
+        }
         s.nextId = maxOf(o.optLong("nextId", 1L), maxId + 1)
         return s
     }

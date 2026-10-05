@@ -33,6 +33,18 @@ set APP_HOME=%DIRNAME%
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
+@if exist "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" goto wrapperAvailable
+@where gradle >NUL 2>NUL
+@if errorlevel 1 goto noWrapperRuntime
+gradle %*
+@exit /b %ERRORLEVEL%
+
+:noWrapperRuntime
+echo Gradle wrapper JAR is not vendored. Install Gradle 8.7 or use the GitHub Actions build workflow. 1>&2
+@exit /b 1
+
+:wrapperAvailable
+
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS=-Dfile.encoding=UTF-8 "-Xmx64m" "-Xms64m"
 

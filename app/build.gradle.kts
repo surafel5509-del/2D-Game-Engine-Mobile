@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val releaseStoreFile = providers.gradleProperty("SENGINE_KEYSTORE_PATH").orNull
+    ?: providers.environmentVariable("SENGINE_KEYSTORE_PATH").orNull
+val releaseStorePassword = providers.gradleProperty("SENGINE_KEYSTORE_PASSWORD").orNull
+    ?: providers.environmentVariable("SENGINE_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("SENGINE_KEY_ALIAS").orNull
+    ?: providers.environmentVariable("SENGINE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("SENGINE_KEY_PASSWORD").orNull
+    ?: providers.environmentVariable("SENGINE_KEY_PASSWORD").orNull
+val releaseSigningEnabled = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+    .all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.sengine"
     compileSdk = 34
@@ -11,16 +22,28 @@ android {
         applicationId = "com.sengine.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 3
+        versionName = "2.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseSigningEnabled) {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the release APK is installable out of the box.
-            // Replace with your own signing config before publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            // Never sign a publishing build with Android's publicly known debug key.
+            // Configure the four SENGINE_* values to produce a signed release APK.
+            if (releaseSigningEnabled) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
@@ -43,7 +66,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
-    // JavaScript scripting runtime (interpreted mode). 1.7.14 breaks on Android (javax.lang.model), keep 1.7.13
+    // Rhino 1.7.14 hits Android's javax.lang.model APIs; 1.7.13 is the supported runtime.
     implementation("org.mozilla:rhino:1.7.13")
 
     testImplementation("junit:junit:4.13.2")

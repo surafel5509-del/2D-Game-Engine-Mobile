@@ -10,6 +10,7 @@ import com.sengine.engine.core.Camera2D
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.ScriptComponent
+import com.sengine.engine.core.SpriteAnimator
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
 
@@ -43,9 +44,10 @@ class HierarchyAdapter(
     }
 
     private fun iconFor(go: GameObject): String = when {
-        go.getAny<Camera2D>() != null -> "🎥"
+        go.getAny<Camera2D>() != null -> "◉"
         go.getAny<TextRenderer>() != null -> "T"
         go.getAny<ParticleEmitter>() != null -> "✦"
+        go.getAny<SpriteAnimator>() != null -> "▶"
         go.getAny<SpriteRenderer>() != null -> when (go.getAny<SpriteRenderer>()!!.shape) { 1 -> "●"; 2 -> "▲"; else -> "■" }
         go.getAny<ScriptComponent>() != null -> "{}"
         else -> "○"

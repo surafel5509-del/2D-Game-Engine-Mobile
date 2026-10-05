@@ -149,7 +149,8 @@ class ScriptEditorActivity : AppCompatActivity() {
             if (text[i] == '\n') { line++; col = 1 } else col++
         }
         val dirty = if (text.toString() != saved) "  •  modified" else ""
-        status.text = "Ln $line, Col $col  •  ${text.count { it == '\n' } + 1} lines  •  JavaScript$dirty"
+        val language = if (asset.substringAfterLast('.', "").lowercase() in setOf("glsl", "frag", "vert", "shader")) "GLSL ES" else "JavaScript"
+        status.text = "Ln $line, Col $col  •  ${text.count { it == '\n' } + 1} lines  •  $language$dirty"
     }
 
     private fun pushHistory() {
@@ -220,9 +221,10 @@ class ScriptEditorActivity : AppCompatActivity() {
 LIFECYCLE (define any of these)
   start()              once, when play begins
   update(dt)           every frame (dt = seconds)
-  onCollision(other)   solid collision began
-  onTrigger(other)     entered a trigger
-  onTriggerExit(other) left a trigger
+  onCollision(other)       solid contact began
+  onCollisionExit(other)   solid contact ended
+  onTrigger(other)         entered a trigger
+  onTriggerExit(other)     left a trigger
   onTap()              object's collider tapped
   onDestroy() / onStop()
 
@@ -231,8 +233,10 @@ SELF  (self / transform / gameObject)
   x y rotation scaleX scaleY   (local)
   worldX worldY                (read-only)
   setPosition(x,y) move(dx,dy) rotate(deg)
-  vx vy grounded setVelocity(vx,vy)
-  addForce(fx,fy)              (impulse)
+  vx vy angularVelocity grounded setVelocity(vx,vy)
+  addForce(fx,fy)              (force, fixed-step)
+  addImpulse(ix,iy) addTorque(t) addAngularImpulse(degPerSec)
+  animationFrame playAnimation() stopAnimation()
   color = "#FFRRGGBB"  visible  flipX
   text  (TextRenderer)  setTexture(name)
   burst(n) setEmitting(b)      (particles)
@@ -254,6 +258,18 @@ SCENE
                        great templates)
   load(sceneName) reload() camera
   gravityX gravityY name
+
+PHYSICS
+  physics.raycast(x,y,dx,dy,maxDistance[,layerMask])
+  hit.gameObject hit.distance hit.pointX hit.pointY
+  hit.normalX hit.normalY
+  physics.circleCast(x,y,dx,dy,distance,radius)
+  physics.overlapCircle(x,y,radius) overlapArea(x,y,w,h)
+
+CAMERA
+  camera.shake(amount,duration) or cameraShake(amount,duration)
+  Follow smoothing, look-ahead, offset, limits and pixel-perfect mode
+  are configured on the Camera component.
 
 TIME   time.time time.frame time.fps
 AUDIO  audio.play("file.wav") audio.beep()

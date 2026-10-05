@@ -1,233 +1,105 @@
-# S Engine 2D — Professional Mobile Game Engine
+# S Engine 2D
 
-[![Build](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/build-apk.yml/badge.svg)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/actions/workflows/build-apk.yml)
-[![Release](https://img.shields.io/github/v/release/surafel5509-del/2D-Game-Engine-Mobile)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases/latest)
-[![License](https://img.shields.io/github/license/surafel5509-del/2D-Game-Engine-Mobile)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/surafel5509-del/2D-Game-Engine-Mobile/total)](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases)
+S Engine is an Android-first, strictly 2D Kotlin game editor and runtime. It lets you create a project on-device, edit scenes and JavaScript behaviours, preview the game, and build the editor APK in CI. It uses OpenGL ES 2.0 for rendering and Rhino for interpreted JavaScript.
 
-A powerful, production-ready 2D game engine for Android built entirely in Kotlin. Create commercial-quality mobile games including platformers, racing games, physics puzzles, shooters, and more — all from your phone or tablet.
+> **Scope:** S Engine is an actively developed lightweight engine, not a Godot-compatible engine yet. The feature list below describes implemented behaviour in this repository; unfinished systems are called out explicitly rather than presented as complete.
 
-## 🎮 Engine Features
+## What works today
 
-### Advanced 2D Physics
-- **Rigid bodies** — Dynamic, kinematic, and static body types
-- **Collision detection** — Box, circle, and capsule colliders with offset support
-- **Impulse-based resolution** — Gravity, friction, restitution, drag
-- **Collision layers & masks** — 32-bit layer system for selective collision
-- **Joints** — Distance, hinge, spring, wheel, and rope joints
-- **Raycasting** — Point queries, ray casts, overlap circle/area queries
-- **Character body** — Grounded detection, coyote time, jump buffering, wall-slide, double-jump, step-up
-- **Vehicle physics** — Wheel suspension, torque, steering, terrain interaction
-- **Ragdoll** — Physics-based character death/fall simulation
+### Scene editor and project workflow
 
-### Rendering & Animation
-- **OpenGL ES 2.0 renderer** — Batched sprite rendering with shape & texture support
-- **Sprite-sheet animation** — Multi-animation state machine with frame events
-- **Particle system** — Configurable emitter with gravity, color/size over lifetime, rotation
-- **TileMap system** — Multi-layer grid maps with collision generation and auto-tiling
-- **Terrain system** — Procedural heightmap terrain (Hill Climb Racing style)
-- **Camera system** — Follow with smoothing, dead zone, look-ahead, shake, zoom, boundary limits
-- **Sorting layers** — Per-object draw order
+- Project manager with Empty 2D, Platformer, Space Shooter, Physics Sandbox and Top-Down Racer starters.
+- Scene hierarchy, object selection, transform editing, parent/reparent, add/remove components, duplicate/delete, scene switching and save/load.
+- 2D viewport with grid, pan/zoom, transform gizmos, collider visualization, snapping, play/pause/step, undo/redo and a live console.
+- Project asset browser for image, sound, JavaScript and GLSL source files; texture previews; source editing with undo/redo.
+- Built-in offline library of 100 original CC0-1.0 starter assets: 20 characters, 20 objects, 20 backgrounds, 16 synthesized WAV effects, 12 JavaScript behaviors and 12 GLSL sources. Assets can be previewed and copied into a project.
+- Full-screen in-app game preview with touch controls; Android orientation settings per project.
 
-### Scripting
-- **JavaScript (Rhino)** — Write game logic in JavaScript
-- **Rich API** — Transform, physics, input, audio, scene, camera, signals, save/load
-- **Event callbacks** — `start()`, `update(dt)`, `onCollision(other)`, `onTrigger(other)`, `onTap()`, `onDestroy()`
-- **Signal/Event system** — Global and object-level named signals for decoupled communication
-- **Timers** — `after(seconds, fn)`, `every(seconds, fn)`
-- **Math utilities** — `random()`, `clamp()`, `lerp()`, `distanceTo()`, `normalize()`, `reflect()`, etc.
-- **Physics queries** — `physics.raycast()`, `physics.overlapCircle()`, `physics.overlapArea()`
+### Strictly 2D runtime
 
-### Audio
-- **SoundPool-based** — Low-latency SFX playback with 12+ simultaneous streams
-- **Per-source control** — Volume, pitch, looping, spatial blend
-- **Music support** — WAV, OGG, MP3, M4A formats
+- GLES 2.0 orthographic renderer for tinted sprites, shapes, text and CPU particles.
+- Stable-order texture batching (preserves alpha draw order), sprite-atlas UV regions and sprite-sheet animation.
+- Camera follow with smoothing, offset, velocity look-ahead, bounds, shake and pixel-perfect camera mode.
+- Scene serialization, parent transforms, tags, sorting order, script lifecycle callbacks, timers, signals/messages, scene reload/load and game-object duplication.
+- JavaScript API for transforms, input, physics queries, audio, particles, animation, scene access and logs.
+- SoundPool-based short sound effects and a built-in beep fallback; mobile virtual joystick/buttons plus keyboard/controller buttons.
 
-### Input System
-- **Touch** — On-screen touch with world-coordinate conversion
-- **Virtual joystick** — Configurable floating joystick for mobile controls
-- **Keyboard** — WASD, arrow keys, space, enter
-- **Game controller** — D-pad, analog stick, A/B buttons
-- **Input mapping** — Unified axis/button abstraction
+### Physics implemented
 
-### In-Game UI
-- **UI Canvas** — Screen-space overlay rendering
-- **Button, Label, ProgressBar, Slider, Image, VirtualJoystick** — Built-in UI elements
-- **Anchoring** — 9-point anchor system for responsive layouts
-- **Signals** — Click events, value changes
+- Dynamic, kinematic and static bodies; box and circle colliders; triggers; gravity; drag; friction and restitution.
+- 32-bit collision layers and mutually checked masks.
+- Accumulated forces, impulses, torque and angular velocity. Rotated boxes use a 2D SAT narrow phase.
+- Pin, distance and damped spring joints support world anchors or named connected bodies; connected-body collision filtering and joint counts are exposed to the editor.
+- Fixed-step simulation with a sweep-and-prune broad phase and optional adaptive substeps for continuous bodies.
+- Raycasts, circle casts, point/circle/area overlap queries and collision/trigger enter/exit callbacks.
+- A live physics summary in the editor viewport.
 
-### Scene & Architecture
-- **Scene/Node/Component** — Entity-component architecture with hierarchy
-- **Signals/Events** — Decoupled communication between systems
-- **Object pooling** — Eliminate GC pressure with pre-allocated object pools
-- **Save/Load system** — Full scene state persistence with key-value game data
-- **Checkpoint system** — Automatic save at designated points
-- **Resource manager** — Asset caching, async loading, reference counting
+The solver is intentionally compact. It does **not** currently implement a complete Box2D/Godot-style contact manifold solver, joint warm-starting/limits/motors, wheel suspension, ragdolls, or terrain collision.
 
-### Debugging & Profiling
-- **Profiler** — Frame timing, draw calls, physics stats, memory usage
-- **Debug console** — In-game command console with custom commands
-- **Debug overlay** — Real-time FPS, object count, physics info
-- **Physics debugger** — Visualize colliders, joints, raycasts
-- **Engine signals** — Built-in events for all major engine occurrences
+## Build and test
 
-### Visual Editor
-- **Scene Tree** — Hierarchical object browser
-- **Inspector** — Component property editing with live preview
-- **2D Viewport** — Pan, zoom, grid, snap-to-grid
-- **Transform tools** — Move, rotate, scale with gizmos
-- **Animation timeline** — Visual keyframe editing
-- **Asset manager** — Import images, scripts, sounds
-- **Project management** — Create, duplicate, export/import projects
-
-## 🎯 Game Templates
-
-| Template | Description |
-|----------|-------------|
-| **Empty 2D** | Camera + square. Start from scratch. |
-| **Platformer Demo** | Run, jump, collect coins. Joystick + A button. |
-| **Advanced Platformer** | Double-jump, wall-slide, enemies, moving platforms, HUD. |
-| **Space Shooter** | Top-down shooter with spawning, triggers, score. |
-| **Physics Sandbox** | Tap to drop bouncy balls and boxes. |
-| **Hill Climb Vehicle** | Drive a vehicle over hilly terrain with physics. |
-| **Physics Puzzle** | Drag-and-drop puzzle with joints and objectives. |
-
-## 🏗 Architecture
-
-```
-com.sengine.engine/
-├── core/          Scene, GameObject, Component, SignalBus, TileMap, Terrain, CameraSystem, ObjectPool
-├── physics/       PhysicsWorld, Joints (Distance/Hinge/Spring/Wheel/Rope), Raycaster, CharacterBody, VehiclePhysics, Ragdoll
-├── render/        Renderer2D, SceneRenderer, View2D, TextureCache, EditorState
-├── animation/     SpriteAnimator, AnimationStateMachine
-├── script/        ScriptSystem (Rhino JS), API bindings
-├── ui/            UICanvas, UIButton, UILabel, UIProgressBar, UISlider, UIVirtualJoystick
-├── resource/      ResourceManager, TextureAtlasManager, PrefabManager
-├── save/          SaveSystem, CheckpointSystem
-├── debug/         Profiler, DebugConsole, DebugOverlay
-├── math/          Affine transform, Vector2D
-├── AudioSystem    SoundPool-based audio
-├── Input          Multi-input abstraction
-└── Engine         Main game loop & system integration
-```
-
-## 📱 Building
+Requirements: JDK 17, Gradle 8.7, and Android SDK platform 34/build tools available to Gradle. The source snapshot does not include Gradle's wrapper JAR, so install Gradle 8.7 on `PATH` (the `gradlew` script falls back to it).
 
 ```bash
-./gradlew assembleDebug
+gradle testDebugUnitTest
+gradle assembleDebug
 ```
 
-To download the GitHub-built APK, open **Actions → Build S Engine APK → latest successful run → Artifacts → `SEngine-debug-apk`**. The APK installs directly on Android 8.0+ devices.
+The installable editor APK is written to `app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions installs Gradle 8.7, runs the JVM/unit simulation tests, and uploads the debug APK and test reports. Tag builds can produce a privately signed editor APK when the signing secrets documented in `.github/workflows/release-apk.yml` are configured.
 
-## 📜 Scripting Example
+### Export and build a separate game APK
+
+Open a project, choose **Main menu → Export Android Game Project**, set the display title/package id, and save the Gradle project ZIP. It contains the 2D player runtime without the editor, plus that project's scenes/assets, orientation, build configuration and a GitHub Actions workflow. Open it in Android Studio and run `gradle assembleDebug`, or push the ZIP's contents to GitHub: the included workflow builds and publishes a debug APK artifact. For a signed release, configure the documented `SENGINE_KEYSTORE_*` secrets and push a `v*` tag.
+
+Download the APK artifact, then use **Main menu → Install Game APK** in S Engine. Android will ask for the system's “install unknown apps” permission and show its standard package-installer confirmation. APK compilation is done on a computer/CI with Android SDK tools; the Android editor itself does not pretend to run Gradle on-device.
+
+A release APK is **not** signed with the public Android debug key. Configure a private keystore before running `gradle assembleRelease`:
+
+```bash
+export SENGINE_KEYSTORE_PATH=/secure/path/release.jks
+export SENGINE_KEYSTORE_PASSWORD='…'
+export SENGINE_KEY_ALIAS='release'
+export SENGINE_KEY_PASSWORD='…'
+gradle assembleRelease
+```
+
+The four values can also be supplied as Gradle properties. Do not commit keystores or passwords. The release artifact is unsigned when signing values are absent.
+
+## Scripting
+
+Each Script component has its own JavaScript scope. Supported callbacks include `start`, `update(dt)`, `onCollision`, `onCollisionExit`, `onTrigger`, `onTriggerExit`, `onTap`, `onDestroy` and `onStop`.
 
 ```javascript
-// Player controller with double-jump and wall-jump
-var speed = 6;
-var jumpForce = 12;
-var coins = 0;
-
-function start() {
-    log("Player ready!");
-}
-
 function update(dt) {
-    // Movement
-    self.vx = input.axisX * speed;
-    if (input.axisX > 0.1) self.flipX = false;
-    else if (input.axisX < -0.1) self.flipX = true;
+    self.vx = input.axisX * 6;
 
-    // Jump (CharacterBody handles double-jump, coyote time, etc.)
     if (input.aDown && self.grounded) {
-        self.vy = jumpForce;
+        self.addImpulse(0, 10);
     }
 
-    // Fell off the world
-    if (self.y < -15) scene.reload();
-}
+    var hit = physics.raycast(self.worldX, self.worldY, 0, -1, 5);
+    if (hit) log("Hit " + hit.gameObject.name + " at " + hit.distance);
 
-function onTrigger(other) {
-    if (other.tag == "Coin") {
-        coins++;
-        scene.find("ScoreText").text = "★ " + coins;
-        audio.beep();
-        other.destroy();
-    }
-}
-
-function onCollision(other) {
-    if (other.tag == "Enemy" && self.vy < 0) {
-        // Stomp!
-        self.vy = 10;
-        other.destroy();
-    }
+    if (input.bDown) cameraShake(0.25, 0.2);
 }
 ```
 
-## 🔧 Professional Features
+Additional helpers include `after(seconds, fn)`, `every(seconds, fn)`, `clamp`, `lerp`, `random`, `randomInt`, `scene.find`, `scene.spawn`, `scene.load`, `audio.play`, `audio.beep`, `physics.circleCast`, `physics.overlapCircle` and `physics.overlapArea`. The in-app Script API Reference lists object properties and callbacks.
 
-### Collision Layers
-```javascript
-// Set layer via component properties
-// Layer 0 = default, layers 1-31 for custom grouping
-// Mask controls which layers this body collides with
+## Current limitations / roadmap
+
+The following requested Godot-class features are **not implemented yet** and should not be inferred from project naming or future-looking APIs: a full animation timeline/state machine and event editor; a TileMap/terrain authoring tool; a general UI canvas/layout editor; arbitrary custom shader/material execution (the library's GLSL files are editable examples only); texture-atlas packing/import settings; advanced audio buses/effects; full Input Map and gesture editor; robust joint limits/motors, ropes, vehicles, ragdolls and terrain; a profiler beyond the live frame/draw/physics summary; and collaboration. Per-project Android export now creates a standalone player-only Gradle project and build workflow; actual APK compilation still requires Android SDK build tools on a computer/CI, not on the editor device.
+
+These are meaningful larger systems, not hidden behind mock buttons. The existing scene/component architecture and project format are the extension points for implementing them incrementally.
+
+## Repository map
+
+```text
+app/src/main/java/com/sengine/
+├── engine/core/       Scene, GameObject, components and JSON serialization
+├── engine/physics/    2D collision, fixed-step dynamics and query API
+├── engine/render/     GLES2 renderer, batching, camera view and texture cache
+├── engine/script/     Rhino runtime and JavaScript bindings
+├── project/           Project storage, templates and import/export
+└── ui/                Android project manager, editor, inspector and player
 ```
-
-### Raycasting
-```javascript
-function update(dt) {
-    var hit = physics.raycast(self.x, self.y, 0, -1, 10);
-    if (hit) {
-        log("Hit " + hit.gameObject.name + " at distance " + hit.distance);
-    }
-}
-```
-
-### Signals
-```javascript
-// Global events
-signals.emit1("score_changed", newScore);
-signals.connect("score_changed", function(score) { ... });
-
-// Object events
-function start() {
-    on("custom_event", myHandler);
-}
-```
-
-### Save/Load
-```javascript
-function update(dt) {
-    if (input.tapped) {
-        saveGame("highScore", coins);
-        scene.save(0); // Full scene snapshot
-    }
-}
-```
-
-### Camera Control
-```javascript
-function update(dt) {
-    // Shake on explosion
-    cameraShake(0.5, 0.3);
-    // Zoom for dramatic effect
-    cameraZoom(8);
-}
-```
-
-### Object Pooling
-```javascript
-// Pre-register pool
-// Then in scripts:
-var bullet = spawnPooled("Bullet", self.x, self.y + 1);
-// Later:
-releasePooled(bullet);
-```
-
-## 📄 License
-
-This project is open source. See LICENSE file for details.
-
----
-
-**S Engine 2D v2.0** — Built for mobile, designed for professionals.

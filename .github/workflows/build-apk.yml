@@ -1,4 +1,4 @@
-name: Build S Engine APK
+name: Build S Engine Android APK
 
 on:
   push:
@@ -7,31 +7,55 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
-    - name: Compile Kotlin
-      run: gradle compileDebugKotlin --stacktrace
+      - name: Validate the 100-item offline asset library
+        run: python3 tools/validate_builtin_library.py
 
-    - name: Build APK
-      run: gradle assembleDebug
+      - name: Validate the standalone game-export template
+        run: python3 tools/validate_export_template.py
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: SEngine-debug-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
-        if-no-files-found: error
+      - name: Run unit and engine simulation tests
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build installable editor APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SEngine-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SEngine-test-reports
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14

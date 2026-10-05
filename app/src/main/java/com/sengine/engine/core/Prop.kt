@@ -3,7 +3,8 @@ package com.sengine.engine.core
 enum class AssetKind(val extensions: List<String>) {
     TEXTURE(listOf("png", "jpg", "jpeg", "webp", "bmp")),
     SCRIPT(listOf("js")),
-    SOUND(listOf("wav", "ogg", "mp3", "m4a"));
+    SOUND(listOf("wav", "ogg", "mp3", "m4a")),
+    SHADER(listOf("glsl", "frag", "vert", "shader"));
 
     companion object {
         fun of(fileName: String): AssetKind? {

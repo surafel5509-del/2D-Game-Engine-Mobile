@@ -13,10 +13,10 @@ import com.sengine.engine.core.TextRenderer
 object Templates {
     class Template(val name: String, val description: String, val build: (Project) -> Unit)
 
-    val all: List<Template> by lazy { listOf(empty, platformer, shooter, physics) }
+    val all: List<Template> by lazy { listOf(empty, platformer, shooter, physics, racer) }
 
     const val NEW_SCRIPT = """// S Engine behaviour script (JavaScript)
-// Globals: self/transform, input, time, scene, audio, log(), after(), every()
+// Globals: self/transform, input, time, scene, physics, audio, log(), after(), every()
 
 function start() {
     log("Hello from " + self.name);
@@ -294,6 +294,67 @@ function update(dt) {
         }
         val ball = obj(s, "Ball", 0f, 20f, 0.8f, 0.8f).sprite(0xFFFFFFFF, 1).circleCol().body(bounce = 0.7f)
         ball.active = false
+        p.saveScene(s)
+        p.startScene = "Main"
+    }
+
+    // ---------------------------------------------------------- top-down racing
+    private val racer = Template("Top-Down Racer", "A touch-driven 2D track with steering, grip, walls and a lap marker.") { p ->
+        p.writeAsset("Car.js", """// Arcade top-down car. Joystick vertical = throttle / reverse; horizontal = steering.
+// Params: acceleration, steering, grip, topSpeed
+var laps = 0;
+function update(dt) {
+    var a = transform.rotation * Math.PI / 180;
+    var fx = Math.sin(a), fy = Math.cos(a);
+    var rx = Math.cos(a), ry = -Math.sin(a);
+    var forwardSpeed = self.vx * fx + self.vy * fy;
+    var lateralSpeed = self.vx * rx + self.vy * ry;
+    self.addForce(fx * input.axisY * acceleration, fy * input.axisY * acceleration);
+    self.addForce(-rx * lateralSpeed * grip, -ry * lateralSpeed * grip);
+    if (Math.abs(forwardSpeed) > 0.15) transform.rotation += input.axisX * steering * dt * (forwardSpeed < 0 ? -1 : 1);
+    var speed = Math.sqrt(self.vx * self.vx + self.vy * self.vy);
+    if (speed > topSpeed) self.setVelocity(self.vx * topSpeed / speed, self.vy * topSpeed / speed);
+    scene.find("Speed").text = Math.floor(speed * 8) + " km/h";
+}
+function onTrigger(other) {
+    if (other.tag == "Checkpoint") {
+        laps++;
+        scene.find("Lap").text = "LAP " + laps;
+    }
+}
+""")
+        val s = Scene("Main").also { it.gravityX = 0f; it.gravityY = 0f }
+        val cam = camera(s, 8f, 0xFF203727, follow = "Car")
+        obj(s, "Lap", -8f, 6.8f, parent = cam).text("LAP 0", 0.55f).also { it.order = 100 }
+        obj(s, "Speed", 8f, 6.8f, parent = cam).text("0 km/h", 0.55f).also { it.order = 100 }
+
+        // The road is four 2D strips; the nested grass infield keeps the track legible.
+        obj(s, "North Road", 0f, 6f, 15f, 3f).sprite(0xFF51565D).also { it.order = -10 }
+        obj(s, "South Road", 0f, -6f, 15f, 3f).sprite(0xFF51565D).also { it.order = -10 }
+        obj(s, "West Road", -6f, 0f, 3f, 12f).sprite(0xFF51565D).also { it.order = -10 }
+        obj(s, "East Road", 6f, 0f, 3f, 12f).sprite(0xFF51565D).also { it.order = -10 }
+        obj(s, "Infield", 0f, 0f, 9f, 9f).sprite(0xFF315B39).also { it.order = -9 }
+
+        fun barrier(name: String, x: Float, y: Float, w: Float, h: Float) {
+            obj(s, name, x, y, w, h).sprite(0xFFB9C3BE).box()
+        }
+        barrier("Outer North", 0f, 9f, 18f, 0.45f)
+        barrier("Outer South", 0f, -9f, 18f, 0.45f)
+        barrier("Outer West", -9f, 0f, 0.45f, 18f)
+        barrier("Outer East", 9f, 0f, 0.45f, 18f)
+        barrier("Infield North", 0f, 4.55f, 9f, 0.3f)
+        barrier("Infield South", 0f, -4.55f, 9f, 0.3f)
+        barrier("Infield West", -4.55f, 0f, 0.3f, 9f)
+        barrier("Infield East", 4.55f, 0f, 0.3f, 9f)
+
+        obj(s, "Start Stripe", 0f, 7.15f, 3f, 0.12f).sprite(0xFFE7E7E7).also { it.order = -5 }
+        val checkpoint = obj(s, "Checkpoint", 0f, 7.15f, 3f, 0.25f).box(trigger = true)
+        checkpoint.tag = "Checkpoint"; checkpoint.order = -4
+        val car = obj(s, "Car", 0f, 6f, 0.72f, 1.15f).sprite(0xFFFF7043, 2).box()
+            .body(friction = 0.2f, gravity = 0f).script("Car.js", "acceleration=18, steering=135, grip=7, topSpeed=12")
+        car.tag = "Player"; car.order = 5
+        car.getAny<Rigidbody2D>()!!.drag = 0.6f
+        car.getAny<Rigidbody2D>()!!.angularDrag = 2.5f
         p.saveScene(s)
         p.startScene = "Main"
     }
