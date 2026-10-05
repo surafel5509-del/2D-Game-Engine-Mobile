@@ -92,7 +92,11 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         for (comp in go.components) {
             if (comp !is ScriptComponent || comp.script.isBlank()) continue
             val script = compiled[comp.script] ?: run {
-                val src = engine.project.readAsset(comp.script)
+                val raw = engine.project.readAsset(comp.script)
+                val src = if (raw != null && comp.script.endsWith(".bp")) {
+                    try { com.sengine.engine.blueprint.BlueprintCompiler.compile(com.sengine.engine.blueprint.Blueprint.parse(raw)) }
+                    catch (e: Exception) { engine.log(2, "Blueprint ${comp.script}: ${e.message}"); null }
+                } else raw
                 if (src == null) {
                     engine.log(2, "Script not found: ${comp.script} (on ${go.name})")
                     null
@@ -114,6 +118,8 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
             val inst = Instance(go, comp, scope)
             try {
                 script.exec(c, scope)
+                // Inspector params override top-level defaults like `var speed = 5;`
+                applyParams(scope, comp.params)
                 instances.add(inst)
             } catch (e: RhinoException) {
                 engine.log(2, "${comp.script}:${e.lineNumber()} ${e.details()}")

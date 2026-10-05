@@ -44,6 +44,12 @@ class ProjectsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Exported game: go straight to the player.
+        com.sengine.export.GameRuntime.standaloneProject(this)?.let { game ->
+            startActivity(Intent(this, PlayerActivity::class.java).putExtra("projectDir", game.dir.absolutePath).putExtra("standalone", true))
+            finish()
+            return
+        }
         val root = vbox().apply { setBackgroundColor(C.BG) }
 
         val header = hbox().apply {
@@ -52,7 +58,7 @@ class ProjectsActivity : AppCompatActivity() {
         }
         val titleBox = vbox()
         titleBox.addView(label("S Engine", 28f, C.TEXT, true))
-        titleBox.addView(label("2D game engine & editor for Android  •  v1.0", 13f, C.DIM))
+        titleBox.addView(label("2D & 3D game engine & editor for Android  •  Ultimate v2.0", 13f, C.DIM))
         header.addView(titleBox, lp(0, WRAP, 1f))
         header.addView(button("Import") { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
             lp(WRAP, WRAP).margins(0, 0, dp(8), 0))
@@ -77,6 +83,36 @@ class ProjectsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        runTestAutomation()
+    }
+
+    /**
+     * Debug-build automation used by CI's emulator smoke test:
+     *   adb shell am start -n com.sengine.app/com.sengine.ui.ProjectsActivity --es sengine_test open|open3d|play|build [--es project NAME]
+     */
+    private fun runTestAutomation() {
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
+        val action = intent.getStringExtra("sengine_test") ?: return
+        intent.removeExtra("sengine_test")
+        val name = intent.getStringExtra("project") ?: ProjectManager.list(this).firstOrNull()?.name ?: return
+        if (!ProjectManager.exists(this, name)) {
+            val t = Templates.all.firstOrNull { it.name == name } ?: Templates.all.last()
+            ProjectManager.create(this, name, t)
+        }
+        when (action) {
+            "open" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name))
+            "open3d" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name).putExtra("mode3d", true))
+            "play" -> startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", name))
+            "build" -> startActivity(Intent(this, BuildActivity::class.java).putExtra("project", name).putExtra("autobuild", true).putExtra("output", "test_game.apk"))
+            "store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", name))
+            "anim" -> startActivity(Intent(this, AnimationEditorActivity::class.java).putExtra("project", name))
+            "blueprint" -> {
+                val p = ProjectManager.open(this, name)
+                val bp = p.listAssets(com.sengine.engine.core.AssetKind.SCRIPT).firstOrNull { it.endsWith(".bp") }
+                    ?: "Test.bp".also { p.writeAsset(it, com.sengine.engine.blueprint.Blueprint.defaultGraph().toJson().toString(2)) }
+                startActivity(Intent(this, BlueprintEditorActivity::class.java).putExtra("project", name).putExtra("asset", bp))
+            }
+        }
     }
 
     private fun refresh() {

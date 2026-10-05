@@ -25,7 +25,9 @@ class ViewportController(
 
     private enum class Op { NONE, PENDING, PAN, MOVE, ROTATE, SCALE, PINCH }
 
+    val c3 = Viewport3DController(act, engine, ed)
     var snap = false
+        set(value) { field = value; c3.snap = value }
     private var op = Op.NONE
     private val slop = ViewConfiguration.get(act).scaledTouchSlop.toFloat()
     private var downX = 0f
@@ -56,6 +58,7 @@ class ViewportController(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouch(v: View, e: MotionEvent): Boolean {
         if (engine.mode != Engine.Mode.EDIT) { forwardToGame(e); return true }
+        if (ed.mode3D) { c3.onTouch(e); return true }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> onDown(e.x, e.y)
             MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) startPinch(e)
@@ -287,6 +290,7 @@ class ViewportController(
     }
 
     fun frame(go: GameObject?) {
+        if (ed.mode3D) { synchronized(engine.lock) { c3.frame(go) }; return }
         if (go == null) { view.cx = 0f; view.cy = 0f; view.size = 6f; return }
         val w = go.computeWorld()
         view.cx = w.tx; view.cy = w.ty

@@ -40,6 +40,8 @@ class Engine(val project: Project, initialScene: Scene) {
 
     val input = Input()
     val physics = PhysicsWorld()
+    val physics3D = com.sengine.engine.physics.PhysicsWorld3D()
+    val animation = com.sengine.engine.anim.AnimationSystem(project)
     val scripts = ScriptSystem(this)
     val audio = AudioSystem(project)
     val gameView = View2D()
@@ -47,6 +49,11 @@ class Engine(val project: Project, initialScene: Scene) {
     var time = 0.0; private set
     var frame = 0L; private set
     @Volatile var fps = 0f; private set
+    // profiler (milliseconds, smoothed)
+    @Volatile var scriptMs = 0f
+    @Volatile var physicsMs = 0f
+    @Volatile var renderMs = 0f
+    @Volatile var drawCalls = 0
     private var fpsAcc = 0f
     private var fpsFrames = 0
 
@@ -60,6 +67,7 @@ class Engine(val project: Project, initialScene: Scene) {
 
     init {
         physics.listener = scripts
+        physics3D.listener = scripts
     }
 
     // ---------------------------------------------------------------- commands
@@ -112,9 +120,12 @@ class Engine(val project: Project, initialScene: Scene) {
     private fun beginScene() {
         for (go in scene.objects) for (c in go.components) c.resetRuntime()
         physics.reset()
+        physics3D.reset()
         audio.start()
         scene.updateTransforms()
         snapCameraToTarget()
+        updateCamera3DFollow(10f)
+        scene.updateTransforms()
         updateGameView()
         for (go in scene.objects) {
             if (!go.isActiveInHierarchy()) continue
@@ -151,7 +162,7 @@ class Engine(val project: Project, initialScene: Scene) {
 
         when (mode) {
             Mode.PLAY -> runFrame(dt)
-            Mode.EDIT -> { scene.updateTransforms(); updateParticles(dt) }
+            Mode.EDIT -> { scene.updateTransforms(); updateParticles(dt); updateAnimators(dt, false) }
             Mode.PAUSED -> scene.updateTransforms()
         }
     }
@@ -162,13 +173,22 @@ class Engine(val project: Project, initialScene: Scene) {
         scene.updateTransforms()
         updateGameView()
         input.beginFrame(gameView)
+        val t0 = System.nanoTime()
         scripts.update(dt)
+        val t1 = System.nanoTime()
         physics.step(scene, dt)
+        physics3D.step(scene, dt)
+        val t2 = System.nanoTime()
+        scriptMs = scriptMs * 0.9f + (t1 - t0) / 1e6f * 0.1f
+        physicsMs = physicsMs * 0.9f + (t2 - t1) / 1e6f * 0.1f
         cleanupDestroyed()
         scene.updateTransforms()
         updateCameraFollow(dt)
+        updateCamera3DFollow(dt)
         updateGameView()
         updateParticles(dt)
+        updateAnimators(dt, true)
+        decayShake(dt)
 
         val load = pendingSceneLoad
         if (load != null) {
@@ -197,6 +217,39 @@ class Engine(val project: Project, initialScene: Scene) {
         var p = go.parent
         while (p != null) { if (p.destroyed) return true; p = p.parent }
         return false
+    }
+
+    fun mainCamera3D(): GameObject? = scene.objects.firstOrNull { it.isActiveInHierarchy() && it.get<com.sengine.engine.core.Camera3D>() != null }
+
+    private fun updateAnimators(dt: Float, playing: Boolean) {
+        for (go in scene.objects) {
+            val a = go.getAny<com.sengine.engine.core.Animator>() ?: continue
+            val sr = go.getAny<com.sengine.engine.core.SpriteRenderer>() ?: continue
+            if (playing && !go.isActiveInHierarchy()) continue
+            animation.update(a, sr, dt, playing)
+        }
+    }
+
+    private fun updateCamera3DFollow(dt: Float) {
+        val camGo = mainCamera3D() ?: return
+        val cam = camGo.get<com.sengine.engine.core.Camera3D>()!!
+        if (cam.follow.isBlank()) return
+        val t = scene.find(cam.follow) ?: return
+        val tw = t.world3
+        val w = camGo.computeWorld3()
+        val k = if (cam.smoothing <= 0f) 1f else (1f - exp(-cam.smoothing * dt))
+        val gx = tw[12] + cam.offsetX; val gy = tw[13] + cam.offsetY; val gz = tw[14] + cam.offsetZ
+        camGo.setWorldPosition3(w[12] + (gx - w[12]) * k, w[13] + (gy - w[13]) * k, w[14] + (gz - w[14]) * k)
+    }
+
+    fun shake(amount: Float) {
+        mainCamera()?.getAny<Camera2D>()?.let { it.shake = maxOf(it.shake, amount) }
+        mainCamera3D()?.getAny<com.sengine.engine.core.Camera3D>()?.let { it.shake = maxOf(it.shake, amount) }
+    }
+
+    private fun decayShake(dt: Float) {
+        mainCamera()?.getAny<Camera2D>()?.let { it.shake = maxOf(0f, it.shake - dt * 2f * maxOf(1f, it.shake)) }
+        mainCamera3D()?.getAny<com.sengine.engine.core.Camera3D>()?.let { it.shake = maxOf(0f, it.shake - dt * 2f * maxOf(1f, it.shake)) }
     }
 
     fun mainCamera(): GameObject? = scene.objects.firstOrNull { it.isActiveInHierarchy() && it.get<Camera2D>() != null }

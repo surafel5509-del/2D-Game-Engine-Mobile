@@ -35,6 +35,7 @@ class ScriptEditorActivity : AppCompatActivity() {
     private var historyIndex = -1
     private var restoring = false
 
+    private var glsl = false
     private val highlightTask = Runnable { highlight(editor.text) }
     private val historyTask = Runnable { pushHistory() }
 
@@ -42,6 +43,7 @@ class ScriptEditorActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         project = ProjectManager.open(this, intent.getStringExtra("project")!!)
         asset = intent.getStringExtra("asset")!!
+        glsl = asset.endsWith(".glsl")
         saved = project.readAsset(asset) ?: ""
 
         val root = vbox().apply { setBackgroundColor(C.BG) }
@@ -51,7 +53,7 @@ class ScriptEditorActivity : AppCompatActivity() {
         bar.addView(titleView, lp(0, WRAP, 1f))
         bar.addView(button("↶") { undo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
         bar.addView(button("↷") { redo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
-        bar.addView(button("API") { showApi() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
+        bar.addView(button(if (glsl) "GLSL" else "API") { showApi() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
         bar.addView(button("Save", C.ACCENT, 0xFFFFFFFF.toInt()) { save() }, lp(WRAP, WRAP).margins(dp(3), 0, 0, 0))
         root.addView(bar, lp(MATCH, WRAP))
 
@@ -188,21 +190,26 @@ class ScriptEditorActivity : AppCompatActivity() {
             }
         }
         paint(NUMBER, 0xFFB5CEA8.toInt())
-        paint(KEYWORD, 0xFF569CD6.toInt())
-        paint(API, 0xFF4EC9B0.toInt())
+        if (glsl) {
+            paint(GLSL_KEYWORD, 0xFF569CD6.toInt())
+            paint(GLSL_API, 0xFF4EC9B0.toInt())
+        } else {
+            paint(KEYWORD, 0xFF569CD6.toInt())
+            paint(API, 0xFF4EC9B0.toInt())
+        }
         paint(FUNC, 0xFFDCDCAA.toInt())
         paint(STRING, 0xFFCE9178.toInt())
         paint(COMMENT, 0xFF6A9955.toInt())
     }
 
     private fun showApi() {
-        val tv = label(API_DOC, 12f, C.TEXT).apply {
+        val tv = label(if (glsl) GLSL_DOC else API_DOC, 12f, C.TEXT).apply {
             typeface = Typeface.MONOSPACE
             setPadding(dp(18), dp(10), dp(18), dp(10))
             setTextIsSelectable(true)
         }
         MaterialAlertDialogBuilder(this)
-            .setTitle("S Engine Script API")
+            .setTitle(if (glsl) "S Engine Shaders" else "S Engine Script API")
             .setView(ScrollView(this).apply { addView(tv) })
             .setPositiveButton("Close", null)
             .show()
@@ -212,6 +219,8 @@ class ScriptEditorActivity : AppCompatActivity() {
         private val KEYWORD = Regex("\\b(var|let|const|function|return|if|else|for|while|do|break|continue|new|this|true|false|null|undefined|typeof|in|of|switch|case|default|try|catch|finally|throw)\\b")
         private val API = Regex("\\b(self|transform|gameObject|input|time|scene|audio|console|Math)\\b")
         private val FUNC = Regex("\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()")
+        private val GLSL_KEYWORD = Regex("\\b(float|int|bool|void|vec2|vec3|vec4|mat2|mat3|mat4|sampler2D|if|else|for|return|discard|const|uniform|varying|precision|mediump|highp|lowp|true|false)\\b")
+        private val GLSL_API = Regex("\\b(uTime|uParam|uTex|uColor|uUseTex|uResolution|texture2D|mix|clamp|smoothstep|step|fract|floor|sin|cos|dot|length|normalize|pow|abs|max|min|mod|distance)\\b")
         private val NUMBER = Regex("\\b\\d+(\\.\\d+)?\\b")
         private val STRING = Regex("\"(\\\\.|[^\"\\\\\\n])*\"|'(\\\\.|[^'\\\\\\n])*'")
         private val COMMENT = Regex("//[^\\n]*|/\\*[\\s\\S]*?\\*/")
@@ -233,6 +242,19 @@ SELF  (self / transform / gameObject)
   setPosition(x,y) move(dx,dy) rotate(deg)
   vx vy grounded setVelocity(vx,vy)
   addForce(fx,fy)              (impulse)
+
+ 3D
+  z rotX rotY rotZ scaleZ worldZ vz
+  setPosition(x,y,z) move(dx,dy,dz)
+  rotate(rx,ry,rz) setVelocity(x,y,z)
+  addForce(x,y,z) distanceTo3(o) forward()
+  setMeshColor("#FFRRGGBB")
+
+ ANIMATION & RENDER
+  play("Run.anim") stopAnimation()
+  animation isAnimationFinished()
+  setAnimSpeed(s) setShaderParam(v)
+
   color = "#FFRRGGBB"  visible  flipX
   text  (TextRenderer)  setTexture(name)
   burst(n) setEmitting(b)      (particles)
@@ -254,6 +276,10 @@ SCENE
                        great templates)
   load(sceneName) reload() camera
   gravityX gravityY name
+  spawn(name, x, y, z)  shake(amount)
+  raycast(ox,oy,oz, dx,dy,dz, max)
+     -> {object, x, y, z, distance} | null
+  getCamera3D() gravity3D
 
 TIME   time.time time.frame time.fps
 AUDIO  audio.play("file.wav") audio.beep()
@@ -267,6 +293,36 @@ HELPERS
 
 PARAMS  "speed=5, jump=10" in the Script
         component become variables.
+
+BLUEPRINTS  .bp files compile to this API.
+""".trimIndent()
+
+        val GLSL_DOC = """
+Shaders are GLSL ES 1.0 effect functions:
+
+  vec4 effect(vec4 color, vec2 uv) {
+      return color;
+  }
+
+color  the lit / tinted pixel (sprite or mesh)
+uv     texture coordinate (tiled for meshes)
+
+UNIFORMS
+  uTime        seconds since start
+  uParam       per-object "Shader Param"
+               (script: self.setShaderParam(v))
+  uTex         the object's texture
+  uUseTex      1.0 if a texture is bound
+  uColor       tint color
+  uResolution  viewport size in pixels
+
+USE IT
+  • SpriteRenderer / MeshRenderer → Shader
+  • Camera → Post FX = Custom Shader,
+    FX Shader = file (color = screen pixel)
+
+Use 'discard' to cut out pixels.
+Compile errors show in the Console.
 """.trimIndent()
     }
 }

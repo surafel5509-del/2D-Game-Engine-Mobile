@@ -1,6 +1,7 @@
 package com.sengine.engine.core
 
 import com.sengine.engine.math.Affine
+import com.sengine.engine.math.Mat4
 
 class GameObject(var id: Long, var name: String) {
     var tag: String = "Untagged"
@@ -13,6 +14,11 @@ class GameObject(var id: Long, var name: String) {
     var rotation = 0f
     var scaleX = 1f
     var scaleY = 1f
+    // 3D extension (rotation above is the Z rotation)
+    var z = 0f
+    var rotX = 0f
+    var rotY = 0f
+    var scaleZ = 1f
 
     var parent: GameObject? = null
     val components = mutableListOf<Component>()
@@ -21,6 +27,26 @@ class GameObject(var id: Long, var name: String) {
 
     /** Cached world transform, refreshed by [Scene.updateTransforms]. */
     val world = Affine()
+    /** Cached 3D world matrix (column-major), refreshed by [Scene.updateTransforms]. */
+    val world3 = Mat4.identity()
+
+    fun localMatrix3(out: FloatArray = FloatArray(16)): FloatArray =
+        Mat4.trs(out, x, y, z, rotX, rotY, rotation, scaleX, scaleY, scaleZ)
+
+    fun computeWorld3(): FloatArray {
+        val local = localMatrix3()
+        val p = parent ?: return local
+        return Mat4.mul(FloatArray(16), p.computeWorld3(), local)
+    }
+
+    fun setWorldPosition3(wx: Float, wy: Float, wz: Float) {
+        val p = parent
+        if (p == null) { x = wx; y = wy; z = wz; return }
+        val inv = FloatArray(16)
+        if (!Mat4.invert(inv, p.computeWorld3())) return
+        val l = Mat4.point(inv, wx, wy, wz)
+        x = l[0]; y = l[1]; z = l[2]
+    }
 
     fun localMatrix(out: Affine = Affine()): Affine = out.setTRS(x, y, rotation, scaleX, scaleY)
 

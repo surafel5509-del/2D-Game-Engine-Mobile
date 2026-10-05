@@ -7,6 +7,25 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 object GL {
+    /** Compiles and links; returns program id (0 on failure) and the error log. */
+    fun tryCompile(vs: String, fs: String): Pair<Int, String?> {
+        val v = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER)
+        GLES20.glShaderSource(v, vs); GLES20.glCompileShader(v)
+        val st = IntArray(1)
+        GLES20.glGetShaderiv(v, GLES20.GL_COMPILE_STATUS, st, 0)
+        if (st[0] == 0) { val e = GLES20.glGetShaderInfoLog(v); GLES20.glDeleteShader(v); return 0 to "vertex: $e" }
+        val f = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER)
+        GLES20.glShaderSource(f, fs); GLES20.glCompileShader(f)
+        GLES20.glGetShaderiv(f, GLES20.GL_COMPILE_STATUS, st, 0)
+        if (st[0] == 0) { val e = GLES20.glGetShaderInfoLog(f); GLES20.glDeleteShader(v); GLES20.glDeleteShader(f); return 0 to e }
+        val p = GLES20.glCreateProgram()
+        GLES20.glAttachShader(p, v); GLES20.glAttachShader(p, f); GLES20.glLinkProgram(p)
+        GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, st, 0)
+        GLES20.glDeleteShader(v); GLES20.glDeleteShader(f)
+        if (st[0] == 0) { val e = GLES20.glGetProgramInfoLog(p); GLES20.glDeleteProgram(p); return 0 to "link: $e" }
+        return p to null
+    }
+
     fun compile(vs: String, fs: String): Int {
         val v = shader(GLES20.GL_VERTEX_SHADER, vs)
         val f = shader(GLES20.GL_FRAGMENT_SHADER, fs)

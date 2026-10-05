@@ -30,6 +30,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sengine.engine.Engine
 import com.sengine.engine.core.AssetKind
+import com.sengine.engine.core.Animator
+import com.sengine.engine.core.Camera3D
+import com.sengine.engine.core.Collider3D
+import com.sengine.engine.core.Light
+import com.sengine.engine.core.MeshRenderer
+import com.sengine.engine.core.Rigidbody3D
 import com.sengine.engine.core.AudioSource
 import com.sengine.engine.core.Camera2D
 import com.sengine.engine.core.Collider2D
@@ -76,6 +82,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     private lateinit var playBtn: TextView
     private lateinit var pauseBtn: TextView
     private lateinit var stepBtn: TextView
+    private lateinit var modeBtn: TextView
     private val toolButtons = HashMap<Tool, TextView>()
 
     private val handler = Handler(Looper.getMainLooper())
@@ -89,7 +96,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             if (engine.mode != Engine.Mode.EDIT && count != lastObjectCount) refreshHierarchy()
             val mode = when (engine.mode) { Engine.Mode.EDIT -> "EDIT"; Engine.Mode.PLAY -> "▶ PLAYING"; Engine.Mode.PAUSED -> "⏸ PAUSED" }
             statsText.text = "$mode  •  ${engine.scene.name}  •  ${engine.fps.toInt()} FPS  •  $count objects" +
-                if (controller.snap) "  •  snap" else ""
+                (if (state.mode3D) "  •  3D" else "") + (if (controller.snap) "  •  snap" else "") +
+                if (state.showProfiler) String.format("\nscripts %.2f ms  •  physics %.2f ms  •  render %.2f ms  •  %d draw calls  •  heap %d MB",
+                    engine.scriptMs, engine.physicsMs, engine.renderMs, engine.drawCalls,
+                    (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576) else ""
             handler.postDelayed(this, 200)
         }
     }
@@ -137,11 +147,13 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 state.view.size = (cam.getAny<Camera2D>()!!.size * 1.3f)
             } else state.view.size = 6f
         }
+        val auto3D = synchronized(engine.lock) { engine.mainCamera3D() != null && engine.mainCamera() == null }
+        if (intent.getBooleanExtra("mode3d", false) || auto3D) toggle3D()
         refreshHierarchy()
         inspector.rebuild()
         refreshAssets()
         updateModeUi()
-        appendConsole(0, "S Engine 1.0 — project '${project.name}', scene '${scene.name}'")
+        appendConsole(0, "S Engine Ultimate 2.0 — project '${project.name}', scene '${scene.name}'")
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -196,6 +208,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         for ((tool, glyph) in listOf(Tool.HAND to "✋", Tool.MOVE to "✥", Tool.ROTATE to "⟳", Tool.SCALE to "⤢")) {
             toolButtons[tool] = tbtn(glyph) { setTool(tool) }
         }
+        modeBtn = tbtn("2D") { toggle3D() }
+        tbtn("📊") { state.showProfiler = !state.showProfiler }
         sep()
         playBtn = tbtn("▶") { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
         pauseBtn = tbtn("⏸") { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
@@ -271,6 +285,11 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         tabs.addView(View(this), lp(0, 1, 1f))
         assetButtons = hbox()
         assetButtons.addView(button("+ Script") { newScriptDialog { refreshAssets(); openScript(it) } }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("🛒 Store") { startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name)) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("+ Blueprint") { newAssetDialog("New Blueprint", "NewBlueprint", "bp", { com.sengine.engine.blueprint.Blueprint.defaultGraph().toJson().toString(2) }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("+ Shader") { newAssetDialog("New Shader", "NewShader", "glsl", { Templates.NEW_SHADER }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("+ Animation") { newAssetDialog("New Animation", "NewAnimation", "anim", { com.sengine.engine.anim.AnimationClip().toJson().toString(2) }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("Import Model") { importKind = AssetKind.MODEL; importLauncher.launch(arrayOf("*/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("Import Image") { importKind = AssetKind.TEXTURE; importLauncher.launch(arrayOf("image/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("Import Sound") { importKind = AssetKind.SOUND; importLauncher.launch(arrayOf("audio/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         tabs.addView(assetButtons)
@@ -354,7 +373,33 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     }
 
     override fun openScript(name: String) {
-        startActivity(Intent(this, ScriptEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
+        when (AssetKind.of(name)) {
+            AssetKind.ANIMATION -> openAnimationEditor(name)
+            else -> if (name.endsWith(".bp")) startActivity(Intent(this, BlueprintEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
+                else startActivity(Intent(this, ScriptEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
+        }
+    }
+
+    fun openAnimationEditor(name: String?) {
+        saveScene(silent = true)
+        startActivity(Intent(this, AnimationEditorActivity::class.java).putExtra("project", project.name).apply { if (name != null) putExtra("asset", name) })
+    }
+
+    private fun newAssetDialog(title: String, base: String, ext: String, content: (String) -> String, open: Boolean = true) {
+        val f = field(base)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
+            .setPositiveButton("Create") { _, _ ->
+                var n = f.text.toString().trim().replace(Regex("[^A-Za-z0-9_\\-]"), "").ifBlank { base }
+                if (!n.endsWith(".$ext")) n += ".$ext"
+                n = project.uniqueAssetName(n)
+                project.writeAsset(n, content(n))
+                refreshAssets()
+                if (open) openScript(n)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     override fun newScriptDialog(onCreated: (String) -> Unit) {
@@ -410,13 +455,23 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     }
 
     // ================================================================== object creation
+    private fun toggle3D() {
+        state.mode3D = !state.mode3D
+        modeBtn.text = if (state.mode3D) "3D" else "2D"
+        if (state.mode3D) synchronized(engine.lock) { controller.frame(engine.scene.findById(state.selectedId)) }
+    }
+
     private fun addObjectMenu(anchor: View) {
         if (engine.mode != Engine.Mode.EDIT) { toast("Stop play mode to add objects"); return }
         val pm = PopupMenu(this, anchor)
-        val items = listOf("Empty", "Square", "Circle", "Triangle", "Text", "Camera", "Particle System",
-            "Physics Box", "Physics Ball", "Static Platform", "Trigger Zone", "Empty Child")
-        items.forEach { pm.menu.add(it) }
-        pm.setOnMenuItemClickListener { createObject(it.title.toString()); true }
+        pm.menu.add("Empty"); pm.menu.add("Empty Child")
+        val m2 = pm.menu.addSubMenu("2D Object")
+        listOf("Square", "Circle", "Triangle", "Text", "UI Text", "Camera", "Particle System",
+            "Physics Box", "Physics Ball", "Static Platform", "Trigger Zone", "Animated Sprite").forEach { m2.add(it) }
+        val m3 = pm.menu.addSubMenu("3D Object")
+        listOf("Cube", "Sphere", "Plane", "Cylinder", "Cone", "Torus", "Capsule", "Pyramid",
+            "Physics Cube 3D", "Physics Sphere 3D", "Ground 3D", "3D Camera", "Directional Light", "Point Light").forEach { m3.add(it) }
+        pm.setOnMenuItemClickListener { if (!it.hasSubMenu()) createObject(it.title.toString()); true }
         pm.show()
     }
 
@@ -426,8 +481,21 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             val scene = engine.scene
             val parent = if (kind == "Empty Child") scene.findById(state.selectedId) else null
             val g = scene.create(if (kind == "Empty Child") "GameObject" else kind, parent)
-            if (parent == null) { g.x = snap(state.view.cx); g.y = snap(state.view.cy) }
+            if (parent == null) {
+                if (state.mode3D) { g.x = snap(state.orbitX); g.y = snap(state.orbitY); g.z = snap(state.orbitZ) }
+                else { g.x = snap(state.view.cx); g.y = snap(state.view.cy) }
+            }
+            val meshKinds = MeshRenderer.MESHES
             when (kind) {
+                in meshKinds -> g.add(MeshRenderer().also { it.mesh = meshKinds.indexOf(kind) }).also { if (kind == "Plane") { g.scaleX = 10f; g.scaleZ = 10f } }
+                "Physics Cube 3D" -> { g.y += 3f; g.add(MeshRenderer().also { it.color = 0xFFFFB74D.toInt() }); g.add(Collider3D()); g.add(Rigidbody3D()) }
+                "Physics Sphere 3D" -> { g.y += 3f; g.add(MeshRenderer().also { it.mesh = 1; it.color = 0xFF4FC3F7.toInt() }); g.add(Collider3D().also { it.shape = 1 }); g.add(Rigidbody3D().also { it.bounciness = 0.5f }) }
+                "Ground 3D" -> { g.scaleX = 20f; g.scaleY = 0.5f; g.scaleZ = 20f; g.y = -0.25f; g.add(MeshRenderer().also { it.color = 0xFF6D8B5A.toInt() }); g.add(Collider3D()) }
+                "3D Camera" -> { g.y = 3f; g.z = 10f; g.rotX = -12f; g.add(Camera3D()) }
+                "Directional Light" -> { g.rotX = -50f; g.rotY = 30f; g.add(Light()) }
+                "Point Light" -> { g.y += 2f; g.add(Light().also { it.kind = 1; it.color = 0xFFFFC870.toInt() }) }
+                "UI Text" -> { g.x = 0f; g.y = 4f; g.add(TextRenderer().also { it.screenSpace = true; it.text = "Score: 0" }) }
+                "Animated Sprite" -> { g.add(SpriteRenderer()); g.add(Animator()) }
                 "Empty", "Empty Child" -> g.name = scene.uniqueName("GameObject")
                 "Square" -> g.add(SpriteRenderer())
                 "Circle" -> g.add(SpriteRenderer().also { it.shape = 1 })
@@ -501,7 +569,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     private fun mainMenu(anchor: View) {
         val pm = PopupMenu(this, anchor)
         val entries = listOf(
-            "Save Scene", "Scenes…", "Build & Run (fullscreen)", "Export Project (.zip)",
+            "Save Scene", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store", "Animation Editor", "Export Project (.zip)",
+            (if (state.showProfiler) "Hide" else "Show") + " Profiler",
             (if (state.showGrid) "Hide" else "Show") + " Grid",
             (if (state.showColliders) "Hide" else "Show") + " Colliders",
             "Snap: " + if (controller.snap) "ON" else "OFF",
@@ -514,6 +583,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 t == "Save Scene" -> saveScene()
                 t == "Scenes…" -> scenesDialog()
                 t.startsWith("Build & Run") -> { saveScene(silent = true); startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", project.name)) }
+                t == "Build APK…" -> { saveScene(silent = true); startActivity(Intent(this, BuildActivity::class.java).putExtra("project", project.name)) }
+                t == "Asset Store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name))
+                t == "Animation Editor" -> openAnimationEditor(null)
+                t.endsWith("Profiler") -> state.showProfiler = !state.showProfiler
                 t.startsWith("Export") -> { saveScene(silent = true); exportLauncher.launch("${project.name}.zip") }
                 t.endsWith("Grid") -> state.showGrid = !state.showGrid
                 t.endsWith("Colliders") -> state.showColliders = !state.showColliders
@@ -521,7 +594,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 t == "Toggle Bottom Panel" -> toggle(bottomPanel)
                 t == "Script API Reference" -> showText("Script API", ScriptEditorActivity.API_DOC)
                 t.startsWith("About") -> showText("About S Engine",
-                    "S Engine 1.0\n\nA 2D game engine and editor that runs entirely on your Android device.\n\n" +
+                    "S Engine Ultimate 2.0\n\nA 2D & 3D game engine and editor that runs entirely on your Android device.\n\n" +
+                        "• 3D: meshes, OBJ models, Blinn-Phong lights, fog, sky, 3D physics, orbit editor\n" +
+                        "• Sprite animation editor, asset store, visual blueprints, GLSL shaders & post FX\n" +
+                        "• Build real installable APKs of your game\n" +
                         "• Scene editor with hierarchy, inspector, gizmos, undo/redo\n• OpenGL ES 2.0 renderer: shapes, sprites, text, particles\n" +
                         "• Physics: rigidbodies, box/circle colliders, triggers\n• JavaScript behaviours (Mozilla Rhino)\n" +
                         "• Multiple scenes, audio, touch joystick, fullscreen player\n• Project import/export as .zip")
@@ -624,7 +700,14 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             } catch (_: Throwable) {}
             card.addView(iv, lp(dp(56), dp(48)))
         } else {
-            val (glyph, color) = when (kind) { AssetKind.SCRIPT -> "JS" to C.YELLOW; AssetKind.SOUND -> "♪" to C.GREEN; else -> "?" to C.DIM }
+            val (glyph, color) = when (kind) {
+                AssetKind.SCRIPT -> (if (name.endsWith(".bp")) "BP" to 0xFF4FC3F7.toInt() else "JS" to C.YELLOW)
+                AssetKind.SOUND -> "♪" to C.GREEN
+                AssetKind.SHADER -> "GLSL" to 0xFFE040FB.toInt()
+                AssetKind.ANIMATION -> "▶▶" to 0xFFFF8A65.toInt()
+                AssetKind.MODEL -> "3D" to 0xFF80CBC4.toInt()
+                else -> "?" to C.DIM
+            }
             card.addView(label(glyph, 20f, color, true).apply { gravity = Gravity.CENTER }, lp(dp(56), dp(48)))
         }
         card.addView(label(name, 10f, C.TEXT).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
@@ -639,6 +722,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             AssetKind.SCRIPT -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Attach to ${sel.name}") }
             AssetKind.TEXTURE -> { pm.menu.add("Create Sprite"); if (sel != null) pm.menu.add("Assign to ${sel.name}") }
             AssetKind.SOUND -> { pm.menu.add("Preview"); if (sel != null) pm.menu.add("Add AudioSource to ${sel.name}") }
+            AssetKind.SHADER -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Use shader on ${sel.name}") }
+            AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}") }
+            AssetKind.MODEL -> { pm.menu.add("Create 3D Model Object"); if (sel != null) pm.menu.add("Use model on ${sel.name}") }
             null -> {}
         }
         pm.menu.add("Delete")
@@ -676,6 +762,41 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     }
                     inspector.rebuild()
                 }
+                sel != null && t.startsWith("Use shader") -> {
+                    history.record(state.selectedId)
+                    synchronized(engine.lock) {
+                        val mr = sel.getAny<MeshRenderer>()
+                        if (mr != null) mr.shader = name else (sel.getAny<SpriteRenderer>() ?: sel.add(SpriteRenderer())).shader = name
+                    }
+                    inspector.rebuild()
+                }
+                sel != null && t.startsWith("Play on") -> {
+                    history.record(state.selectedId)
+                    synchronized(engine.lock) {
+                        if (sel.getAny<SpriteRenderer>() == null) sel.add(SpriteRenderer())
+                        (sel.getAny<Animator>() ?: sel.add(Animator())).clip = name
+                    }
+                    inspector.rebuild()
+                }
+                t == "Create 3D Model Object" -> {
+                    history.record(state.selectedId)
+                    val go = synchronized(engine.lock) {
+                        val g = engine.scene.create(name.substringBeforeLast('.'))
+                        g.x = snap(state.orbitX); g.y = snap(state.orbitY); g.z = snap(state.orbitZ)
+                        g.add(MeshRenderer().also { it.mesh = MeshRenderer.MESHES.size - 1; it.model = name })
+                        g
+                    }
+                    if (!state.mode3D) toggle3D()
+                    refreshHierarchy(); select(go.id)
+                }
+                sel != null && t.startsWith("Use model") -> {
+                    history.record(state.selectedId)
+                    synchronized(engine.lock) {
+                        val mr = sel.getAny<MeshRenderer>() ?: sel.add(MeshRenderer())
+                        mr.mesh = MeshRenderer.MESHES.size - 1; mr.model = name
+                    }
+                    inspector.rebuild()
+                }
                 sel != null && t.startsWith("Add AudioSource") -> {
                     history.record(state.selectedId)
                     synchronized(engine.lock) { sel.add(AudioSource().also { it.clip = name }) }
@@ -707,6 +828,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     mime.contains("ogg") -> ".ogg"
                     mime.contains("mpeg") || mime.contains("mp3") -> ".mp3"
                     mime.contains("wav") -> ".wav"
+                    importKind == AssetKind.MODEL -> ".obj"
                     importKind == AssetKind.SOUND -> ".ogg"
                     else -> ".png"
                 }

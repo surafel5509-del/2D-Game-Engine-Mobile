@@ -69,6 +69,13 @@ class InspectorPanel(private val act: EditorActivity, private val host: EditorHo
             lp(MATCH, WRAP).margins(0, 0, 0, act.dp(8)))
         addProp(body, Prop.F("Gravity X", { engine.scene.gravityX }, { engine.scene.gravityX = it }))
         addProp(body, Prop.F("Gravity Y", { engine.scene.gravityY }, { engine.scene.gravityY = it }))
+        body.addView(act.label("3D World", 12f, C.DIM, true), lp(MATCH, WRAP).margins(0, act.dp(10), 0, act.dp(2)))
+        addProp(body, Prop.F("Gravity 3D", { engine.scene.gravity3D }, { engine.scene.gravity3D = it }))
+        addProp(body, Prop.Color("Ambient", { engine.scene.ambient }, { engine.scene.ambient = it }))
+        addProp(body, Prop.B("Fog", { engine.scene.fog }, { engine.scene.fog = it }))
+        addProp(body, Prop.Color("Fog Color", { engine.scene.fogColor }, { engine.scene.fogColor = it }))
+        addProp(body, Prop.F("Fog Start", { engine.scene.fogStart }, { engine.scene.fogStart = it.coerceAtLeast(0f) }))
+        addProp(body, Prop.F("Fog End", { engine.scene.fogEnd }, { engine.scene.fogEnd = it.coerceAtLeast(0.1f) }))
         body.addView(act.label("Project", 12f, C.DIM, true), lp(MATCH, WRAP).margins(0, act.dp(10), 0, act.dp(2)))
         addProp(body, Prop.Choice("Orientation", listOf("Landscape", "Portrait"), { host.project.orientation },
             { host.project.orientation = it; host.project.saveMeta() }), undo = false)
@@ -121,9 +128,9 @@ class InspectorPanel(private val act: EditorActivity, private val host: EditorHo
         // transform
         container.addView(sectionHeader("Transform", null))
         val tb = sectionBody()
-        vec2(tb, "Position", Prop.F("X", { go.x }, { go.x = it }), Prop.F("Y", { go.y }, { go.y = it }))
-        addProp(tb, Prop.F("Rotation", { go.rotation }, { go.rotation = it }, 1f))
-        vec2(tb, "Scale", Prop.F("X", { go.scaleX }, { go.scaleX = it }, 0.05f), Prop.F("Y", { go.scaleY }, { go.scaleY = it }, 0.05f))
+        vec3(tb, "Position", Prop.F("X", { go.x }, { go.x = it }), Prop.F("Y", { go.y }, { go.y = it }), Prop.F("Z", { go.z }, { go.z = it }))
+        vec3(tb, "Rotation", Prop.F("X", { go.rotX }, { go.rotX = it }, 1f), Prop.F("Y", { go.rotY }, { go.rotY = it }, 1f), Prop.F("Z", { go.rotation }, { go.rotation = it }, 1f))
+        vec3(tb, "Scale", Prop.F("X", { go.scaleX }, { go.scaleX = it }, 0.05f), Prop.F("Y", { go.scaleY }, { go.scaleY = it }, 0.05f), Prop.F("Z", { go.scaleZ }, { go.scaleZ = it }, 0.05f))
         container.addView(tb)
 
         for (c in go.components.toList()) buildComponent(go, c)
@@ -253,6 +260,18 @@ class InspectorPanel(private val act: EditorActivity, private val host: EditorHo
         parent.addView(row, lp(MATCH, WRAP).margins(0, act.dp(2), 0, act.dp(2)))
     }
 
+    private fun vec3(parent: LinearLayout, title: String, px: Prop.F, py: Prop.F, pz: Prop.F) {
+        val row = act.hbox()
+        row.addView(propLabel(title, act.dp(58)))
+        for ((p, col) in listOf(px to 0xFFFF6B6B.toInt(), py to 0xFF6BDB6B.toInt(), pz to 0xFF6BA8FF.toInt())) {
+            val l = act.label(p.name, 11f, col).apply { setPadding(act.dp(3), 0, act.dp(2), 0) }
+            scrubbable(l, p)
+            row.addView(l)
+            row.addView(floatField(p).apply { textSize = 12f }, lp(0, WRAP, 1f))
+        }
+        parent.addView(row, lp(MATCH, WRAP).margins(0, act.dp(2), 0, act.dp(2)))
+    }
+
     private fun addProp(parent: LinearLayout, p: Prop, undo: Boolean = true) {
         val row = act.hbox()
         val label = propLabel(p.name)
@@ -350,13 +369,21 @@ class InspectorPanel(private val act: EditorActivity, private val host: EditorHo
     }
 
     fun addComponentDialog(go: GameObject) {
-        val types = ComponentRegistry.types.keys.filter { t -> t == "Script" || go.components.none { it.type == t } }
+        val cats = ComponentRegistry.categories.entries.toList()
         MaterialAlertDialogBuilder(act)
             .setTitle("Add Component")
-            .setItems(types.map { prettyType(it) }.toTypedArray()) { _, i ->
-                record()
-                locked { ComponentRegistry.create(types[i])?.let { go.add(it) } }
-                rebuild(); changed(true)
+            .setItems(cats.map { "${it.key}  ›" }.toTypedArray()) { _, ci ->
+                val types = cats[ci].value.filter { t -> t == "Script" || go.components.none { it.type == t } }
+                if (types.isEmpty()) return@setItems
+                MaterialAlertDialogBuilder(act)
+                    .setTitle(cats[ci].key)
+                    .setItems(types.map { prettyType(it) }.toTypedArray()) { _, i ->
+                        record()
+                        locked { ComponentRegistry.create(types[i])?.let { go.add(it) } }
+                        rebuild(); changed(true)
+                    }
+                    .setNegativeButton("Back") { _, _ -> addComponentDialog(go) }
+                    .show()
             }
             .show()
     }

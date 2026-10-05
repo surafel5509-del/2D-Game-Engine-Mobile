@@ -7,6 +7,14 @@ class Scene(var name: String) {
     val objects = mutableListOf<GameObject>()
     var gravityX = 0f
     var gravityY = -9.81f
+    var gravityZ = 0f
+    /** Vertical gravity used by 3D physics. */
+    var gravity3D = -9.81f
+    var ambient = 0xFF4A505A.toInt()
+    var fog = false
+    var fogColor = 0xFF9DB4CF.toInt()
+    var fogStart = 20f
+    var fogEnd = 80f
     var nextId = 1L
 
     fun create(name: String, parent: GameObject? = null): GameObject {
@@ -47,11 +55,18 @@ class Scene(var name: String) {
         objects.remove(go)
     }
 
+    private val tmp3 = FloatArray(16)
+
     fun updateTransforms() {
         for ((go, _) in hierarchy()) {
             val p = go.parent
-            if (p == null) go.localMatrix(go.world)
-            else go.world.setMul(p.world, go.localMatrix())
+            if (p == null) {
+                go.localMatrix(go.world)
+                go.localMatrix3(go.world3)
+            } else {
+                go.world.setMul(p.world, go.localMatrix())
+                com.sengine.engine.math.Mat4.mul(go.world3, p.world3, go.localMatrix3(tmp3))
+            }
         }
     }
 
@@ -91,6 +106,10 @@ object SceneSerializer {
         o.put("x", go.x.toDouble()); o.put("y", go.y.toDouble())
         o.put("rotation", go.rotation.toDouble())
         o.put("scaleX", go.scaleX.toDouble()); o.put("scaleY", go.scaleY.toDouble())
+        if (go.z != 0f) o.put("z", go.z.toDouble())
+        if (go.rotX != 0f) o.put("rotX", go.rotX.toDouble())
+        if (go.rotY != 0f) o.put("rotY", go.rotY.toDouble())
+        if (go.scaleZ != 1f) o.put("scaleZ", go.scaleZ.toDouble())
         go.parent?.let { o.put("parent", it.id) }
         val comps = JSONArray()
         for (c in go.components) comps.put(c.toJson())
@@ -108,6 +127,10 @@ object SceneSerializer {
         go.rotation = o.optDouble("rotation", 0.0).toFloat()
         go.scaleX = o.optDouble("scaleX", 1.0).toFloat()
         go.scaleY = o.optDouble("scaleY", 1.0).toFloat()
+        go.z = o.optDouble("z", 0.0).toFloat()
+        go.rotX = o.optDouble("rotX", 0.0).toFloat()
+        go.rotY = o.optDouble("rotY", 0.0).toFloat()
+        go.scaleZ = o.optDouble("scaleZ", 1.0).toFloat()
         go.components.clear()
         val comps = o.optJSONArray("components") ?: JSONArray()
         for (i in 0 until comps.length()) {
@@ -123,6 +146,12 @@ object SceneSerializer {
         o.put("name", scene.name)
         o.put("gravityX", scene.gravityX.toDouble())
         o.put("gravityY", scene.gravityY.toDouble())
+        o.put("gravityZ", scene.gravityZ.toDouble())
+        o.put("gravity3D", scene.gravity3D.toDouble())
+        o.put("ambient", String.format("#%08X", scene.ambient))
+        o.put("fogColor", String.format("#%08X", scene.fogColor))
+        o.put("fogStart", scene.fogStart.toDouble()); o.put("fogEnd", scene.fogEnd.toDouble())
+        o.put("fog", scene.fog)
         o.put("nextId", scene.nextId)
         val arr = JSONArray()
         for (go in scene.objects) arr.put(objectToJson(go))
@@ -134,6 +163,13 @@ object SceneSerializer {
         val s = Scene(o.optString("name", "Main"))
         s.gravityX = o.optDouble("gravityX", 0.0).toFloat()
         s.gravityY = o.optDouble("gravityY", -9.81).toFloat()
+        s.gravityZ = o.optDouble("gravityZ", 0.0).toFloat()
+        s.gravity3D = o.optDouble("gravity3D", -9.81).toFloat()
+        try { s.ambient = Component.parseColor(o.optString("ambient", "#FF4A505A")) } catch (_: Exception) {}
+        try { s.fogColor = Component.parseColor(o.optString("fogColor", "#FF9DB4CF")) } catch (_: Exception) {}
+        s.fogStart = o.optDouble("fogStart", 20.0).toFloat()
+        s.fogEnd = o.optDouble("fogEnd", 80.0).toFloat()
+        s.fog = o.optBoolean("fog", false)
         val arr = o.optJSONArray("objects") ?: JSONArray()
         val parents = HashMap<GameObject, Long>()
         var maxId = 0L

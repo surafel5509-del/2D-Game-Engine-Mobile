@@ -36,7 +36,9 @@ class PlayerActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val project = ProjectManager.open(this, intent.getStringExtra("project") ?: run { finish(); return })
+        val standalone = intent.getBooleanExtra("standalone", false)
+        val project = intent.getStringExtra("projectDir")?.let { com.sengine.project.Project(java.io.File(it)) }
+            ?: ProjectManager.open(this, intent.getStringExtra("project") ?: run { finish(); return })
         requestedOrientation = if (project.orientation == 1) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         val sceneName = intent.getStringExtra("scene") ?: project.startScene
@@ -57,9 +59,11 @@ class PlayerActivity : AppCompatActivity() {
         root.addView(glView)
         root.addView(GameControlsView(this) { engine.input })
         fpsText = label("", 11f, 0x99FFFFFF.toInt()).apply { setPadding(dp(10), dp(6), 0, 0) }
-        root.addView(fpsText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
-        root.addView(button("✕", 0x55000000) { finish() },
-            FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(8), dp(8), 0) })
+        if (!standalone) {
+            root.addView(fpsText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
+            root.addView(button("✕", 0x55000000) { finish() },
+                FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(8), dp(8), 0) })
+        }
         setContentView(root)
         hideSystemUi()
         engine.play()

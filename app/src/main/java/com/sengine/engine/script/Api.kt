@@ -47,18 +47,78 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
     fun rotate(deg: Double) { go.rotation += deg.toFloat() }
 
     // physics
-    fun getVx(): Double = (go.getAny<Rigidbody2D>()?.vx ?: 0f).toDouble()
-    fun setVx(v: Double) { go.getAny<Rigidbody2D>()?.vx = v.toFloat() }
-    fun getVy(): Double = (go.getAny<Rigidbody2D>()?.vy ?: 0f).toDouble()
-    fun setVy(v: Double) { go.getAny<Rigidbody2D>()?.vy = v.toFloat() }
-    fun isGrounded(): Boolean = go.getAny<Rigidbody2D>()?.grounded ?: false
+    private val rb3 get() = go.getAny<com.sengine.engine.core.Rigidbody3D>()
+    fun getVx(): Double = (rb3?.vx ?: go.getAny<Rigidbody2D>()?.vx ?: 0f).toDouble()
+    fun setVx(v: Double) { rb3?.let { it.vx = v.toFloat(); return }; go.getAny<Rigidbody2D>()?.vx = v.toFloat() }
+    fun getVy(): Double = (rb3?.vy ?: go.getAny<Rigidbody2D>()?.vy ?: 0f).toDouble()
+    fun setVy(v: Double) { rb3?.let { it.vy = v.toFloat(); return }; go.getAny<Rigidbody2D>()?.vy = v.toFloat() }
+    fun getVz(): Double = (rb3?.vz ?: 0f).toDouble()
+    fun setVz(v: Double) { rb3?.vz = v.toFloat() }
+    fun isGrounded(): Boolean = rb3?.grounded ?: go.getAny<Rigidbody2D>()?.grounded ?: false
     fun addForce(fx: Double, fy: Double) {
+        rb3?.let { it.vx += (fx / it.mass).toFloat(); it.vy += (fy / it.mass).toFloat(); return }
         val rb = go.getAny<Rigidbody2D>() ?: return
         rb.vx += (fx / rb.mass).toFloat(); rb.vy += (fy / rb.mass).toFloat()
     }
+    fun addForce(fx: Double, fy: Double, fz: Double) {
+        val rb = rb3 ?: return addForce(fx, fy)
+        rb.vx += (fx / rb.mass).toFloat(); rb.vy += (fy / rb.mass).toFloat(); rb.vz += (fz / rb.mass).toFloat()
+    }
     fun setVelocity(vx: Double, vy: Double) {
+        rb3?.let { it.vx = vx.toFloat(); it.vy = vy.toFloat(); return }
         val rb = go.getAny<Rigidbody2D>() ?: return
         rb.vx = vx.toFloat(); rb.vy = vy.toFloat()
+    }
+    fun setVelocity(vx: Double, vy: Double, vz: Double) {
+        val rb = rb3 ?: return setVelocity(vx, vy)
+        rb.vx = vx.toFloat(); rb.vy = vy.toFloat(); rb.vz = vz.toFloat()
+    }
+
+    // ---- 3D transform
+    fun getZ(): Double = go.z.toDouble()
+    fun setZ(v: Double) { go.z = v.toFloat() }
+    fun getRotX(): Double = go.rotX.toDouble()
+    fun setRotX(v: Double) { go.rotX = v.toFloat() }
+    fun getRotY(): Double = go.rotY.toDouble()
+    fun setRotY(v: Double) { go.rotY = v.toFloat() }
+    fun getRotZ(): Double = go.rotation.toDouble()
+    fun setRotZ(v: Double) { go.rotation = v.toFloat() }
+    fun getScaleZ(): Double = go.scaleZ.toDouble()
+    fun setScaleZ(v: Double) { go.scaleZ = v.toFloat() }
+    fun getWorldZ(): Double = go.computeWorld3()[14].toDouble()
+    fun setPosition(x: Double, y: Double, z: Double) { go.x = x.toFloat(); go.y = y.toFloat(); go.z = z.toFloat() }
+    fun move(dx: Double, dy: Double, dz: Double) { go.x += dx.toFloat(); go.y += dy.toFloat(); go.z += dz.toFloat() }
+    fun rotate(rx: Double, ry: Double, rz: Double) { go.rotX += rx.toFloat(); go.rotY += ry.toFloat(); go.rotation += rz.toFloat() }
+    fun distanceTo3(o: SObject): Double {
+        val a = go.computeWorld3(); val b = o.go.computeWorld3()
+        val dx = a[12] - b[12]; val dy = a[13] - b[13]; val dz = a[14] - b[14]
+        return Math.sqrt((dx * dx + dy * dy + dz * dz).toDouble())
+    }
+    /** Local forward (-Z) direction in world space as [x, y, z]. */
+    fun forward(): Any? {
+        val d = com.sengine.engine.math.Mat4.dir(go.computeWorld3(), 0f, 0f, -1f)
+        return sys.newArray(listOf(d[0].toDouble(), d[1].toDouble(), d[2].toDouble()))
+    }
+
+    // ---- animation
+    fun play(clip: String) {
+        val a = go.getAny<com.sengine.engine.core.Animator>() ?: return
+        if (a.current == clip && a.playing && !a.finished) return
+        a.current = clip; a.time = 0f; a.frame = 0; a.finished = false; a.playing = true
+    }
+    fun stopAnimation() { go.getAny<com.sengine.engine.core.Animator>()?.playing = false }
+    fun getAnimation(): String = go.getAny<com.sengine.engine.core.Animator>()?.current ?: ""
+    fun isAnimationFinished(): Boolean = go.getAny<com.sengine.engine.core.Animator>()?.finished ?: true
+    fun setAnimSpeed(v: Double) { go.getAny<com.sengine.engine.core.Animator>()?.speed = v.toFloat() }
+
+    // ---- rendering
+    fun setShaderParam(v: Double) {
+        go.getAny<com.sengine.engine.core.MeshRenderer>()?.shaderParam = v.toFloat()
+        go.getAny<SpriteRenderer>()?.shaderParam = v.toFloat()
+    }
+    fun setMeshColor(hex: String) {
+        val c = try { Component.parseColor(hex) } catch (e: Exception) { return }
+        go.getAny<com.sengine.engine.core.MeshRenderer>()?.color = c
     }
     fun overlaps(other: SObject): Boolean {
         val a = go.computeWorld(); val b = other.go.computeWorld()
@@ -123,23 +183,35 @@ class SScene(private val engine: Engine, private val sys: ScriptSystem) {
         sys.newArray(engine.scene.objects.filter { it.tag == tag && !it.destroyed && it.isActiveInHierarchy() }.map { sys.toJs(it) })
     fun count(tag: String): Double =
         engine.scene.objects.count { it.tag == tag && !it.destroyed && it.isActiveInHierarchy() }.toDouble()
-    fun spawn(name: String, x: Double, y: Double): Any? {
+    private fun spawnGo(name: String, x: Float, y: Float, z: Float?): GameObject? {
         val template = engine.scene.find(name) ?: run { engine.log(1, "spawn: '$name' not found"); return null }
         val copy = engine.scene.duplicate(template, null)
         copy.active = true
-        copy.setWorldPosition(x.toFloat(), y.toFloat())
+        if (z != null) copy.setWorldPosition3(x, y, z) else copy.setWorldPosition(x, y)
         for (d in listOf(copy) + engine.scene.objects.filter { copy.isAncestorOf(it) }) {
             d.components.forEach { it.resetRuntime() }
         }
         engine.scene.updateTransforms()
         sys.attach(copy)
-        return sys.toJs(copy)
+        return copy
     }
+    fun spawn(name: String, x: Double, y: Double): Any? = spawnGo(name, x.toFloat(), y.toFloat(), null)?.let { sys.toJs(it) }
     fun spawn(name: String): Any? {
         val t = engine.scene.find(name) ?: return null
         val w = t.computeWorld()
         return spawn(name, w.tx.toDouble(), w.ty.toDouble())
     }
+    fun spawn(name: String, x: Double, y: Double, z: Double): Any? = spawnGo(name, x.toFloat(), y.toFloat(), z.toFloat())?.let { sys.toJs(it) }
+    fun shake(amount: Double) = engine.shake(amount.toFloat())
+    /** 3D raycast against Collider3D objects; returns the first object hit or null. */
+    fun raycast(ox: Double, oy: Double, oz: Double, dx: Double, dy: Double, dz: Double, maxDist: Double): Any? {
+        val l = Math.sqrt(dx * dx + dy * dy + dz * dz).coerceAtLeast(1e-9)
+        return engine.physics3D.raycast(engine.scene, ox.toFloat(), oy.toFloat(), oz.toFloat(),
+            (dx / l).toFloat(), (dy / l).toFloat(), (dz / l).toFloat(), maxDist.toFloat())?.let { sys.toJs(it) }
+    }
+    fun getCamera3D(): Any? = engine.mainCamera3D()?.let { sys.toJs(it) }
+    fun getGravity3D(): Double = engine.scene.gravity3D.toDouble()
+    fun setGravity3D(v: Double) { engine.scene.gravity3D = v.toFloat() }
     fun load(sceneName: String) = engine.requestLoadScene(sceneName)
     fun reload() = engine.requestLoadScene(engine.scene.name)
     fun getCamera(): Any? = engine.mainCamera()?.let { sys.toJs(it) }
