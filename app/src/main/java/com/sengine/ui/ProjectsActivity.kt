@@ -47,12 +47,12 @@ class ProjectsActivity : AppCompatActivity() {
         val root = vbox().apply { setBackgroundColor(C.BG) }
 
         val header = hbox().apply {
-            setPadding(dp(20), dp(18), dp(20), dp(12))
+            setPadding(dp(24), dp(22), dp(24), dp(16))
             setBackgroundColor(C.HEADER)
         }
         val titleBox = vbox()
-        titleBox.addView(label("S Engine", 28f, C.TEXT, true))
-        titleBox.addView(label("2D game engine & editor for Android  •  v1.0", 13f, C.DIM))
+        titleBox.addView(label("S Engine", 30f, C.TEXT, true))
+        titleBox.addView(label("2D game engine & editor for Android  •  v2.0.0", 13f, C.DIM))
         header.addView(titleBox, lp(0, WRAP, 1f))
         header.addView(button("Import") { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
             lp(WRAP, WRAP).margins(0, 0, dp(8), 0))
@@ -92,21 +92,22 @@ class ProjectsActivity : AppCompatActivity() {
 
     private fun card(p: Project): LinearLayout {
         val card = hbox().apply {
-            background = round(C.PANEL, dp(10).toFloat())
-            setPadding(dp(16), dp(12), dp(10), dp(12))
+            background = round(C.PANEL, dp(14).toFloat(), 1, 0xFF2A2C30.toInt())
+            setPadding(dp(18), dp(16), dp(14), dp(16))
         }
-        val icon = label(p.name.take(1).uppercase(), 22f, 0xFFFFFFFF.toInt(), true).apply {
+        val icon = label(p.name.take(2).uppercase(), 20f, 0xFFFFFFFF.toInt(), true).apply {
             gravity = Gravity.CENTER
-            background = round(colorFor(p.name), dp(10).toFloat())
+            background = round(colorFor(p.name), dp(12).toFloat())
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        card.addView(icon, lp(dp(48), dp(48)).margins(0, 0, dp(14), 0))
+        card.addView(icon, lp(dp(52), dp(52)).margins(0, 0, dp(16), 0))
         val info = vbox()
-        info.addView(label(p.name, 17f, C.TEXT, true))
+        info.addView(label(p.name, 18f, C.TEXT, true))
         val scenes = p.listScenes().size
         val scripts = p.listAssets(AssetKind.SCRIPT).size
         val assets = p.listAssets().size
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(p.dir.lastModified()))
-        info.addView(label("$scenes scene(s) • $scripts script(s) • $assets asset(s)\nModified $date", 12f, C.DIM))
+        info.addView(label("$scenes scene(s)  •  $scripts script(s)  •  $assets asset(s)  •  $date", 12f, C.DIM))
         card.addView(info, lp(0, WRAP, 1f))
         card.addView(button("▶") { play(p) }, lp(WRAP, WRAP).margins(dp(4), 0, dp(4), 0))
         card.addView(button("Open", C.ACCENT, 0xFFFFFFFF.toInt()) { open(p) }, lp(WRAP, WRAP).margins(dp(4), 0, dp(4), 0))

@@ -15,18 +15,19 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 object C {
-    const val BG = 0xFF1E1F22.toInt()
-    const val PANEL = 0xFF2B2D31.toInt()
-    const val PANEL2 = 0xFF383A40.toInt()
-    const val HEADER = 0xFF232428.toInt()
-    const val FIELD = 0xFF1A1B1E.toInt()
-    const val ACCENT = 0xFF4C8DFF.toInt()
-    const val TEXT = 0xFFE6E6E6.toInt()
-    const val DIM = 0xFF9AA0A6.toInt()
-    const val SEL = 0xFF34507F.toInt()
-    const val RED = 0xFFE5534B.toInt()
-    const val GREEN = 0xFF57AB5A.toInt()
-    const val YELLOW = 0xFFE0B341.toInt()
+    const val BG = 0xFF16171A.toInt()
+    const val PANEL = 0xFF202228.toInt()
+    const val PANEL2 = 0xFF2C2F36.toInt()
+    const val HEADER = 0xFF181920.toInt()
+    const val FIELD = 0xFF15161A.toInt()
+    const val ACCENT = 0xFF5B8FFF.toInt()
+    const val ACCENT_DARK = 0xFF3A6BCC.toInt()
+    const val TEXT = 0xFFEAEAEA.toInt()
+    const val DIM = 0xFF8A8F96.toInt()
+    const val SEL = 0xFF3A5588.toInt()
+    const val RED = 0xFFF05A5A.toInt()
+    const val GREEN = 0xFF4ADE80.toInt()
+    const val YELLOW = 0xFFF0C040.toInt()
 }
 
 fun Context.dp(v: Number): Int =
