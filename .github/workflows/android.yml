@@ -52,6 +52,27 @@ jobs:
             echo "::error title=Build errors::${msg}"
             exit 1
           }
+          
+          # Copy APK to workspace root for verification
+          cp app/build/outputs/apk/debug/app-debug.apk ./sengine-debug.apk
+          echo "✅ Debug APK built: sengine-debug.apk"
+
+      - name: Verify APK
+        run: |
+          chmod +x scripts/verify-apk.sh
+          ./scripts/verify-apk.sh ./sengine-debug.apk --verbose || {
+            echo "::error::APK verification failed"
+            exit 1
+          }
+
+      - name: Upload Verification Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-verification-report
+          path: sengine-debug-verification-report.md
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Build release APK
         if: github.event_name != 'pull_request'
