@@ -205,3 +205,9 @@ object EngineSignals {
     const val TIMER_FINISHED = "timer_finished"
     const val CUSTOM = "custom"
 }
+
+/**
+ * Per-instance signal container.
+ * Alias for SignalBus - provides named signal support for any object.
+ */
+typealias Signals = SignalBus

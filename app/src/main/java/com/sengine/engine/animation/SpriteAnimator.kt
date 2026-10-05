@@ -2,7 +2,6 @@ package com.sengine.engine.animation
 
 import com.sengine.engine.core.Component
 import com.sengine.engine.core.Prop
-import com.sengine.engine.core.Signals
 import org.json.JSONArray
 import org.json.JSONObject
 
