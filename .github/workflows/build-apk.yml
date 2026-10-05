@@ -23,20 +23,12 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Compile Kotlin
+      run: gradle compileDebugKotlin --stacktrace
 
-    - name: Build with Gradle
-      run: |
-        gradle assembleDebug 2>&1 | tee build.log
-        exit ${PIPESTATUS[0]}
-
-    - name: Upload build log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: build.log
+    - name: Build APK
+      if: success()
+      run: gradle assembleDebug
 
     - name: Upload APK
       if: success()
