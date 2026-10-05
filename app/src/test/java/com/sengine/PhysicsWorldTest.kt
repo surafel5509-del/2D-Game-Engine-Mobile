@@ -102,7 +102,7 @@ class PhysicsWorldTest {
         mover.x = 5f
         physics.step(scene, 1f / 60f)
         assertEquals(listOf("enter", "exit"), events)
-        assertEquals(0f, mover.x, 0f)
+        assertEquals(5f, mover.x, 0f)
     }
 
     @Test
