@@ -19,6 +19,7 @@ import com.sengine.engine.core.TextRenderer
 import com.sengine.engine.fx.ParticleSystem2D
 import com.sengine.engine.math.Rect2
 import com.sengine.engine.physics.PhysicsWorld2D
+import com.sengine.engine.vehicle.Vehicle2D
 import com.sengine.engine.script.ScriptReference
 import com.sengine.engine.tilemap.AutoTile
 import com.sengine.engine.tilemap.TilemapData
@@ -195,6 +196,40 @@ class EngineV2Test {
         assertEquals("raycast should hit the floor", "Floor", hit?.go?.name)
         assertTrue("overlap query should find bodies", world.overlapCircle(0f, -3f, 4f).isNotEmpty())
         assertTrue("raycast all returns hits", world.rayCastAll(6f, 4f, 6f, -6f).isNotEmpty())
+    }
+
+    @Test
+    fun vehicleDrivesForwardOnFlatGround() {
+        val scene = Scene("Main")
+        val world = PhysicsWorld2D()
+        val ground = scene.create("Ground").also { it.y = -2.2f }
+        ground.add(Collider2D().also { it.width = 400f; it.height = 1f; it.friction = 1f })
+        val car = scene.create("Car").also { it.y = -0.9f }
+        car.add(Collider2D().also { it.width = 1.6f; it.height = 0.7f; it.friction = 0.7f })
+        car.add(Rigidbody2D().also { it.mass = 2f })
+        val vehicle = Vehicle2D().also {
+            it.wheels = "-0.6,-0.4,0.34,drive;0.6,-0.4,0.34,drive"
+            it.maxMotorTorque = 26f
+            it.stabilization = 0.4f
+        }
+        car.add(vehicle)
+        vehicle.build(scene, world)
+        val startX = car.x
+        repeat(300) {
+            vehicle.throttle = 1f
+            vehicle.update(world, 1f / 60f)
+            world.step(scene, 1f / 60f)
+        }
+        println("SIM vehicle rig x=${"%.2f".format(car.x)} y=${"%.2f".format(car.y)} " +
+            "kmh=${"%.1f".format(vehicle.telemetry.speedKmh)} grounded=${vehicle.telemetry.groundedWheels} " +
+            "driven=${vehicle.wheelJoints.size} spin=${"%.0f".format(vehicle.telemetry.commandedWheelSpin)}")
+        assertEquals("both wheels must be built as joints", 2, vehicle.wheelJoints.size)
+        assertTrue("the car must be built with both wheels", vehicle.wheelBodies.size == 2)
+        assertTrue("throttle must spin the driven wheels", vehicle.telemetry.commandedWheelSpin < -1000f)
+        assertTrue("throttle must move the car right (x=${car.x}, start=$startX)", car.x > startX + 0.5f)
+        assertTrue("the car must stay on the ground", car.y > -3f && car.y.isFinite())
+        assertTrue("the car must not reach absurd speeds (${vehicle.telemetry.speedKmh} km/h)",
+            vehicle.telemetry.speedKmh < 250f)
     }
 
     // ------------------------------------------------------------------ UI

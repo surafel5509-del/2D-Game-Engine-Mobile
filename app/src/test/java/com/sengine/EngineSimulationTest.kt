@@ -155,19 +155,34 @@ class EngineSimulationTest {
         val vehicle = car.getAny<Vehicle2D>()!!
         r.frames(90)
         assertEquals("both wheels should be built", 2, vehicle.wheelObjects.size)
-        // Throttle is applied through the vehicle system itself (the Driver.js script writes the
-        // same field), so the physics is covered even where no script runtime is available.
-        r.frames(240) { vehicle.throttle = 1f }
-        val joints = vehicle.wheelJoints
-        println("SIM vehicle speed=${vehicle.telemetry.speedKmh} km/h grounded=${vehicle.telemetry.groundedWheels} " +
-            "x=${car.x} spins=${joints.map { "%.1f".format(it.motorSpeed) }} load=${vehicle.telemetry.suspensionLoad}")
-        // Throttle > 0 must command a right-hand (clockwise) wheel spin on every driven wheel: a
-        // positive motor speed would drive the car backwards.
-        assertTrue("throttle should command the motors", joints.isNotEmpty() && joints.all { it.motorSpeed < -1f })
-        assertTrue("throttle should spin the wheels", joints.any { abs(it.slipSpeed) > 0.05f || abs(it.suspensionForce) > 1f })
-        assertTrue("the vehicle must stay numerically sane", car.x.isFinite() && abs(car.x) < 500f)
-        assertTrue("the vehicle must stay numerically sane", car.y.isFinite() && car.x.isFinite())
-        assertTrue("the suspension must carry the chassis load", vehicle.telemetry.suspensionLoad > 1f)
+        // Throttle is applied through the vehicle system itself. The template's script also writes
+        // the same field from the input each frame, so hold the accelerator button down: that drives
+        // the vehicle whether or not a script runtime is available.
+        r.engine.input.pressButtonA()
+        var commandedSpin = 0f
+        var driveForce = 0f
+        var carriedLoad = 0f
+        r.frames(600) {
+            vehicle.throttle = 1f
+            // The tyres are driven to the commanded spin rate (arcade model): throttle > 0 must ask
+            // for a clockwise spin (negative), which is what drives the car to the right.
+            commandedSpin = minOf(commandedSpin, vehicle.telemetry.commandedWheelSpin)
+            driveForce = maxOf(driveForce, vehicle.telemetry.driveForce)
+            carriedLoad = maxOf(carriedLoad, vehicle.telemetry.suspensionLoad)
+        }
+        r.engine.input.releaseButtonA()
+        r.frames(30)
+        println("SIM vehicle drive=${"%.0f".format(driveForce)}N spin=${"%.0f".format(commandedSpin)}deg/s " +
+            "grounded=${vehicle.telemetry.groundedWheels} x=${"%.2f".format(car.x)} " +
+            "load=${"%.0f".format(carriedLoad)} dist=${"%.2f".format(vehicle.telemetry.distanceTravelled)}")
+        assertTrue("throttle should command the driven wheels, was $commandedSpin deg/s", commandedSpin < -1000f)
+        assertTrue("throttle should command a traction force, was $driveForce N", driveForce > 10f)
+        assertTrue("the suspension must carry the chassis load", carriedLoad > 1f)
+        // The buggy has to climb the template's rolling terrain, not just creep: a pinned vehicle (or
+        // one that only slips its tyres) stalls within a few centimetres.
+        assertTrue("throttle should drive the vehicle up the hill, distance was ${vehicle.telemetry.distanceTravelled}",
+            vehicle.telemetry.distanceTravelled > 5f)
+        assertTrue("the vehicle must stay numerically sane", car.x.isFinite() && car.y.isFinite() && abs(car.x) < 600f)
         assertTrue("script errors: ${r.errors}", r.errors.isEmpty())
     }
 
