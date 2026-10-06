@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
+        android:name=".SEngineApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -62,6 +63,12 @@
             android:name=".ui.BlueprintEditorActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustPan"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <activity
+            android:name=".ui.CrashActivity"
+            android:exported="false"
+            android:process=":crash"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
         <!-- Shares exported APKs / projects through content:// URIs without androidx. -->

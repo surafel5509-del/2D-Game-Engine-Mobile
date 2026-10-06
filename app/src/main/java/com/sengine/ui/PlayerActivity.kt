@@ -53,8 +53,10 @@ class PlayerActivity : Activity() {
         super.onCreate(savedInstanceState)
         standalone = intent.getBooleanExtra("standalone", false)
         val project = resolveProject() ?: run { finish(); return }
-        requestedOrientation = if (project.orientation == 1) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        try {
+            requestedOrientation = if (project.orientation == 1) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } catch (_: Throwable) {}
         val sceneName = intent.getStringExtra("scene") ?: project.startScene
         val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else project.loadScene(project.listScenes().firstOrNull() ?: "Main")
 

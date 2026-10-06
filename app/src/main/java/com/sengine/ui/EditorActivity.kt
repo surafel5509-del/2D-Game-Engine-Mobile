@@ -69,8 +69,17 @@ class EditorActivity : Activity(), InspectorPanel.Host, ViewportController.Callb
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        project = intent.getStringExtra("projectDir")?.let { Project(File(it)) }
-            ?: ProjectManager.open(this, intent.getStringExtra("project") ?: "")
+        val projectName = intent.getStringExtra("project") ?: ""
+        val projectDir = intent.getStringExtra("projectDir")
+        project = when {
+            !projectDir.isNullOrBlank() -> Project(File(projectDir))
+            projectName.isNotBlank() -> ProjectManager.open(this, projectName)
+            else -> {
+                toast("No project specified")
+                finish()
+                return
+            }
+        }
         val sceneName = intent.getStringExtra("scene")
             ?: project.listScenes().firstOrNull() ?: project.startScene
         val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName.ifBlank { "Main" })
@@ -751,11 +760,13 @@ class EditorActivity : Activity(), InspectorPanel.Host, ViewportController.Callb
     // ---------------------------------------------------------------- lifecycle
     override fun onResume() {
         super.onResume()
+        if (::viewport.isInitialized) viewport.onResume()
         profilerTick.post(profilerRunnable)
     }
 
     override fun onPause() {
         super.onPause()
+        if (::viewport.isInitialized) viewport.onPause()
         profilerTick.removeCallbacks(profilerRunnable)
         if (dirty) saveScene()
     }

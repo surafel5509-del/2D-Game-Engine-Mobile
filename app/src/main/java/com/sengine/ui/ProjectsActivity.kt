@@ -85,7 +85,25 @@ class ProjectsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        checkPreviousCrash()
         refresh()
+    }
+
+    private fun checkPreviousCrash() {
+        try {
+            val crashFile = java.io.File(filesDir, "crash.txt")
+            if (crashFile.exists()) {
+                val report = crashFile.readText().trim()
+                crashFile.delete()
+                if (report.isNotEmpty()) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Previous session crashed")
+                        .setMessage(report.take(400) + if (report.length > 400) "…" else "")
+                        .setPositiveButton("Dismiss", null)
+                        .show()
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun refresh() {

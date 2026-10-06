@@ -195,7 +195,7 @@ fun Context.row(name: String, control: View, tooltip: String = ""): LinearLayout
         val l = label(name, 12.5f, C.DIM)
         l.layoutParams = lp(0, WRAP, 0.42f)
         addView(l)
-        if (control.layoutParams == null) control.layoutParams = lp(0, WRAP, 0.58f) else addView(control)
+        if (control.layoutParams == null) control.layoutParams = lp(0, WRAP, 0.58f)
         if (control.parent == null) addView(control)
         if (tooltip.isNotBlank()) {
             val info = label("?", 11f, C.DIM)
