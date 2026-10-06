@@ -73,6 +73,14 @@ class ApkExportTest {
                 strings.contains("com.sengine.game.spacerun.share"))
             assertTrue("no engine package left in the manifest",
                 strings.none { it == "com.sengine.app" || it.startsWith("com.sengine.app.") })
+            // The game has to be launchable and has to find the activity that boots the embedded
+            // project (ProjectsActivity redirects into PlayerActivity when assets/game/build.json is
+            // present, so both declarations must survive the repackaging).
+            assertTrue("launcher entry point missing", strings.contains("android.intent.action.MAIN"))
+            assertTrue("launcher entry point missing", strings.contains("android.intent.category.LAUNCHER"))
+            assertTrue("player activity missing", strings.contains("com.sengine.ui.PlayerActivity"))
+            assertTrue("start scene not embedded",
+                names.contains("assets/game/project/scenes/Main.scene.json"))
         }
     }
 }

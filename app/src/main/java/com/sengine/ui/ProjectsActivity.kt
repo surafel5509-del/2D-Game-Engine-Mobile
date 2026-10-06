@@ -18,6 +18,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import com.sengine.export.GameRuntime
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
 import com.sengine.project.Templates
@@ -40,6 +41,15 @@ class ProjectsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // An exported game carries its project inside the APK (assets/game): boot straight into the
+        // game instead of the project manager.
+        if (GameRuntime.isStandalone(this)) {
+            startActivity(Intent(this, PlayerActivity::class.java)
+                .putExtra("embedded", true)
+                .putExtra("standalone", true))
+            finish()
+            return
+        }
         val root = vbox().apply { setBackgroundColor(C.BG) }
 
         val header = hbox().apply {
