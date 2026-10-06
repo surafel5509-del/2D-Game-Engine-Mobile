@@ -67,7 +67,12 @@ class ApkExportTest {
             assertTrue(strings.contains("com.sengine.game.spacerun"))
             assertTrue(strings.contains("Space Run"))
             assertTrue(strings.contains("1.2.3"))
-            assertTrue("fileprovider authority renamed", strings.contains("com.sengine.game.spacerun.fileprovider"))
+            // The engine's content provider is declared as ${applicationId}.share, so the export has
+            // to rename that authority too - otherwise two installed games would fight over it.
+            assertTrue("share provider authority renamed",
+                strings.contains("com.sengine.game.spacerun.share"))
+            assertTrue("no engine package left in the manifest",
+                strings.none { it == "com.sengine.app" || it.startsWith("com.sengine.app.") })
         }
     }
 }
