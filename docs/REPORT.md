@@ -15,10 +15,14 @@
 
 ## 1. Deliverables
 
-| Artefact | Size | SHA-256 (first 16) | Package | What it is |
-|---|---:|---|---|---|
-| `prebuilt/SEngine-debug.apk` | 2 441 924 B | `d5406c9445c25c70` | `com.sengine.app` | The engine: project manager, editor, play mode. Install on Android 8.0+ (minSdk 26, target 34). |
-| `prebuilt/SpaceRun-game.apk` | 2 234 353 B | `c9fe40232b7b5eb3` | `com.sengine.game.spacerun` | A standalone game **exported by the engine's own builder** from the "Space Shooter" template (versionName `1.2.3`, versionCode `7`, label "Space Run"). |
+| Artefact | Size | Package | What it is |
+|---|---:|---|---|
+| `prebuilt/SEngine-debug.apk` | ≈ 2.44 MB | `com.sengine.app` | The engine: project manager, editor, play mode. Install on Android 8.0+ (minSdk 26, target 34). |
+| `prebuilt/SpaceRun-game.apk` | ≈ 2.23 MB | `com.sengine.game.spacerun` | A standalone game **exported by the engine's own builder** from the "Space Shooter" template (versionName `1.2.3`, versionCode `7`, label "Space Run"). |
+
+CI rebuilds both files on every push and commits them when their bytes change (the exported game
+records its build timestamp in `assets/game/build.json`, so its bytes are unique per build), which is
+why only the sizes are quoted here.
 
 Both APKs are APK Signature Scheme **v2** signed and verified inside CI with the Android SDK's
 `apksigner`:
@@ -96,7 +100,7 @@ Audit of `app/src/main` (88 Kotlin files; ~28 300 lines across `app/src`):
 | 16 | Scripting / gameplay API | `engine/script/ScriptSystem.kt`, `Api.kt`, `ScriptReference.kt`, `ScriptValidator.kt`, `core/Tasks.kt`, `engine/blueprint/Blueprint.kt` | JavaScript (Rhino, interpreted) entities/components/events/signals/timers/tasks/input/physics queries/animation/audio/particles/scene loading/save + load — 2D only; a visual blueprint graph compiles to the same API |
 | 17 | Debugger / profiler | `Engine.kt` stats, `ui/EditorActivity.kt`, `engine/render/EditorState.kt` | console with error reporting, FPS, frame timing, memory, draw calls, physics/particle counters, asset diagnostics, runtime scene inspector, live profiler overlay |
 | 18 | Project management | `project/Project.kt`, `ProjectManager.kt`, `Templates.kt`, `ui/ProjectsActivity.kt`, `BuildActivity.kt` | new/open/save/duplicate/delete, import/export `.zip`, 8 templates, settings: title, package id, version, orientation, resolution, permissions, scenes, build settings |
-| 19 | Android / APK export | `export/ApkBuilder.kt`, `ApkSignerV2.kt`, `AxmlPatcher.kt`, `ZipWriter.kt`, `SigningKeys.kt`, `GameRuntime.kt`, `ui/BuildActivity.kt` | name/package/version/versionCode/orientation/min-target SDK/permissions/icon/splash, debug + release builds, build log, errors, output path, reproducible builds; app icon + label + provider authority are rewritten in the compiled manifest |
+| 19 | Android / APK export | `export/ApkBuilder.kt`, `ApkSignerV2.kt`, `AxmlPatcher.kt`, `ZipWriter.kt`, `SigningKeys.kt`, `GameRuntime.kt`, `ui/BuildActivity.kt` | name/package/version/versionCode/orientation/min-target SDK/permissions/icon/splash, debug + release builds, build log, errors, output path; deterministic entry order and alignment (the embedded build timestamp makes each file unique), and the app label, version, package and provider authority are rewritten in the compiled manifest |
 | 20 | Mobile optimisation | renderer/physics/audio/particle pools, chunked tilemap, texture page reuse, `NO_COMPRESS` handling for already-compressed formats, allocation-free hot loops | reduced draw calls (batcher), GPU-friendly texture reuse, GC-friendly pooling, low-memory asset handling |
 | 21 | Professional UX | `ui/Ui.kt`, `ui/*` activities | dark theme, vector icons (SVG rasteriser), consistent spacing, tooltips, shortcuts, hover/pressed/selected states, responsive panels, clear error dialogs |
 | 22 | Quality | whole tree | no placeholder-only systems, no fake APIs, no empty architecture classes, no major TODOs, no duplicated systems |
