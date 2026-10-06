@@ -6,6 +6,28 @@
 
 ---
 
+## Install
+
+Two prebuilt APKs ship with the repository (refreshed by CI on every push):
+
+| File | What it is |
+|---|---|
+| [`prebuilt/SEngine-debug.apk`](prebuilt/SEngine-debug.apk) | The editor + player. Install it, then create a project from a template and press **Play**. |
+| [`prebuilt/SpaceRun-game.apk`](prebuilt/SpaceRun-game.apk) | A standalone game exported *by the engine itself* from the "Space Shooter" template (`com.sengine.game.spacerun`). |
+
+```
+adb install -r prebuilt/SEngine-debug.apk
+```
+
+Both are debug-signed. The same files are attached to the rolling
+[`sengine-latest`](https://github.com/surafel5509-del/2D-Game-Engine-Mobile/releases/tag/sengine-latest)
+release and to the artefacts of the
+[`android.yml`](.github/workflows/android.yml) workflow, which runs the headless engine test
+suite, builds the APK with Gradle, exports a game APK through the engine's own builder and verifies
+both signatures; only then are they published.
+
+---
+
 ## Features
 
 | Area | What you get |
