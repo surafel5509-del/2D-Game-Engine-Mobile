@@ -55,6 +55,9 @@ class PhysicsWorld2D {
      */
     var maxLinearSpeed = 200f
     var maxAngularSpeed = 60f
+
+    /** Extra passes over the joints (and the contacts between them) per step. */
+    var jointIterations = 2
     /** Baumgarte position correction factor (0..1). */
     var positionCorrection = 0.25f
     var slop = 0.005f
@@ -88,6 +91,22 @@ class PhysicsWorld2D {
 
     /** Set to true by the editor to draw contact points (filled during the step). */
     val debugContacts = ArrayList<FloatArray>(64)
+
+    /**
+     * Pairs of objects joined by a joint that must not collide with each other (every joint unless it
+     * opts in with collideConnected). Without this a wheel mounted under its chassis collides with the
+     * chassis it hangs from, which shoves the car sideways and jams the suspension.
+     */
+    private val noCollidePairs = HashSet<Long>()
+
+    /** Rebuilds [noCollidePairs] from the live joint list. */
+    fun refreshJointPairs() {
+        noCollidePairs.clear()
+        for (j in joints) {
+            if (!j.enabled || j.collideConnected) continue
+            noCollidePairs.add(pairKey(j.a.go.id, j.b.go.id))
+        }
+    }
 
     // ------------------------------------------------------------------ lifecycle
     fun reset() {
@@ -199,12 +218,48 @@ class PhysicsWorld2D {
 
         val t3 = System.nanoTime()
 
-        // ---- joints (an active joint keeps both of its bodies awake, like Box2D: otherwise a
-        // sleeping wheel would ignore its own motor and the car would never start moving)
-        for (j in joints) if (j.enabled) {
-            j.a.wake()
-            j.b.wake()
-            j.solve(dt)
+        // ---- joints, interleaved with the contacts
+        // A joint impulse changes the velocity at a contact point and vice versa (a driven wheel is
+        // exactly this case: tyre friction pushes the car, the suspension and the side constraint
+        // react). Solving both domains in turn - like Box2D's island solver - removes the residual
+        // slip that a single joint pass leaves behind. An active joint also keeps its bodies awake,
+        // otherwise a sleeping wheel would ignore its own motor and the car would never move.
+        for (iter in 0 until jointIterations) {
+            if (contacts.isNotEmpty()) solve(contacts)
+            for (j in joints) if (j.enabled) {
+                j.a.wake()
+                j.b.wake()
+                j.solve(dt)
+            }
+        }
+        // Contacts get the last word: a suspension that pushes its wheel down at the end of the step
+        // would otherwise drive the tyre into the ground every frame, and the next frame's contact
+        // then fires back at it with an impulse sized to undo a whole step of penetration - the
+        // feedback loop that used to launch the car. Resolving contacts once more after the joints
+        // keeps the ground authoritative without changing any joint's own solution.
+        if (contacts.isNotEmpty()) solve(contacts)
+
+        // ---- velocity safety net
+        // The solver can only ever slow a body down, but a joint fighting a deep contact or a bad
+        // initial state can still leave an absurd velocity behind. Anything past the scene's speed
+        // limits is clamped (and non-finite state is dropped) so one bad step can never poison the
+        // rest of the simulation - the classic max-translation guard every 2D engine needs.
+        for (b in bodies) {
+            if (!b.awake || b.type == Body2D.Type.STATIC) continue
+            if (!b.vx.isFinite() || !b.vy.isFinite() || !b.angularVelocity.isFinite()) {
+                b.vx = 0f; b.vy = 0f; b.angularVelocity = 0f
+                continue
+            }
+            if (maxLinearSpeed > 0f) {
+                val sp2 = b.vx * b.vx + b.vy * b.vy
+                if (sp2 > maxLinearSpeed * maxLinearSpeed) {
+                    val scale = maxLinearSpeed / sqrt(sp2)
+                    b.vx *= scale; b.vy *= scale
+                }
+            }
+            if (maxAngularSpeed > 0f && abs(b.angularVelocity) > maxAngularSpeed) {
+                b.angularVelocity = if (b.angularVelocity > 0f) maxAngularSpeed else -maxAngularSpeed
+            }
         }
 
         // ---- sleeping
@@ -251,13 +306,20 @@ class PhysicsWorld2D {
                 bodyByObject[go.id] = it
                 bodies.add(it)
             }
-            val shape = col.buildShape()
+            val scaleX = go.scaleX
+            val scaleY = go.scaleY
+            val shape = col.buildShape(scaleX, scaleY)
             val old = body.shape
             val shapeChanged = old.type != shape.type ||
                 (old is PolygonShape && shape is PolygonShape && !old.vertices.contentEquals(shape.vertices)) ||
-                (old is CircleShape && shape is CircleShape && old.radius != shape.radius)
+                (old is CircleShape && shape is CircleShape && old.radius != shape.radius) ||
+                body.shapeScaleX != scaleX || body.shapeScaleY != scaleY
             if (shapeChanged) {
                 body.shape = shape
+                // The collider is authored in local units; scaling the object scales its collider the
+                // same way it scales its sprite, so a 1x1 collider on a 4x6 object covers the object.
+                body.shapeScaleX = scaleX
+                body.shapeScaleY = scaleY
             }
             body.enabled = true
             body.isSensor = col.isTrigger
@@ -276,6 +338,9 @@ class PhysicsWorld2D {
                 3 -> Body2D.Type.CHARACTER
                 else -> Body2D.Type.STATIC
             }
+            if (rb != null && rb.mass > 0f && body.mass != rb.mass) {
+                body.overrideMass(rb.mass)
+            }
             if (rb != null) {
                 body.gravityScale = rb.gravityScale
                 body.linearDamping = rb.linearDamping
@@ -286,7 +351,8 @@ class PhysicsWorld2D {
                 body.groundTolerance = rb.jumpTolerance
             }
             if (shapeChanged || !body.initialised) {
-                body.refreshMass()
+                // Rigidbody2D.mass (Kg) wins when it is set; a mass of 0 keeps the collider density.
+                if (rb != null && rb.mass > 0f) body.overrideMass(rb.mass) else body.refreshMass()
                 body.syncFromGameObject()
                 if (rb != null) {
                     body.vx = rb.startVx
@@ -306,6 +372,7 @@ class PhysicsWorld2D {
             if (!body.awake) stats.sleepingBodies++ else stats.awakeBodies++
         }
         stats.joints = joints.count { it.enabled }
+        refreshJointPairs()
     }
 
     // ------------------------------------------------------------------ joints from components
@@ -418,6 +485,8 @@ class PhysicsWorld2D {
         if ((b.layer and a.mask) == 0) return true
         if (a.isStatic && b.isStatic) return true
         if (!a.awake && !b.awake && a.isDynamic && b.isDynamic) return true
+        // Bodies connected by a joint do not collide unless the joint allows it.
+        if (noCollidePairs.contains(pairKey(a.go.id, b.go.id))) return true
         return false
     }
 
@@ -781,7 +850,11 @@ class PhysicsWorld2D {
                     val vt = dvx * tx + dvy * ty
                     var lambdaT = -p.massTangent * vt
                     val maxFriction = c.friction * p.normalImpulse
-                    val newT = M.clamp(p.tangentImpulse + lambdaT, -maxFriction, maxFriction)
+                    val frictionCap = if (maxLinearSpeed > 0f) {
+                        val kT = 1f / p.massTangent
+                        min(maxFriction, maxLinearSpeed * kT * 1.5f)
+                    } else maxFriction
+                    val newT = M.clamp(p.tangentImpulse + lambdaT, -frictionCap, frictionCap)
                     lambdaT = newT - p.tangentImpulse
                     p.tangentImpulse = newT
                     var ix = tx * lambdaT
@@ -793,6 +866,11 @@ class PhysicsWorld2D {
                     dvy = b.vy + b.angularVelocity * r2x - (a.vy + a.angularVelocity * p.rx)
                     val vn = dvx * nx + dvy * ny
                     var lambda = -p.massNormal * (vn - p.bias)
+                    // A single iteration may not change the relative normal velocity by more than the
+                    // scene's speed limit: a deep contact against a joint that is still pushing used to
+                    // add impulses without bound and blow the whole assembly up.
+                    val lambdaLimit = if (maxLinearSpeed > 0f) maxLinearSpeed / (1f / p.massNormal) else 0f
+                    if (lambdaLimit > 0f) lambda = lambda.coerceIn(-lambdaLimit * 1.5f, lambdaLimit * 1.5f)
                     val newN = max(p.normalImpulse + lambda, 0f)
                     lambda = newN - p.normalImpulse
                     p.normalImpulse = newN
@@ -911,24 +989,42 @@ class PhysicsWorld2D {
             val travel2 = dx * dx + dy * dy
             val radius = b.shape.boundingRadius()
             if (travel2 < radius * radius * 0.25f) continue
-            // sub-step the motion, testing against other bodies each micro-step
+            // A body that is already touching something is handled by the contact solver; CCD only
+            // exists to stop a fast body from tunnelling through geometry it has not reached yet.
+            if (overlapAny(b, b.x, b.y)) continue
+            // Sweep forward from the CURRENT position - the earlier version swept the path of the
+            // previous step (b.x - dx .. b.x) and, on a hit, moved the body a whole step backwards,
+            // which for a wheel in permanent terrain contact accumulated into an explosion.
             val steps = min(8, max(2, (sqrt(travel2) / max(radius * 0.5f, 0.01f)).toInt() + 1))
-            var px = b.x - dx
-            var py = b.y - dy
+            var px = b.x
+            var py = b.y
+            var hit = false
             for (s in 1..steps) {
                 val t = s.toFloat() / steps
-                val nx = b.x - dx + dx * t
-                val ny = b.y - dy + dy * t
-                if (overlapAny(b, nx, ny)) {
-                    b.x = px
-                    b.y = py
-                    b.vx *= 0.5f
-                    b.vy *= 0.5f
-                    stats.ccdHits++
-                    break
-                }
-                px = nx; py = ny
+                val nx = b.x + dx * t
+                val ny = b.y + dy * t
+                if (overlapAny(b, nx, ny)) { hit = true; break }
+                px = nx
+                py = ny
             }
+            if (!hit) continue
+            // Move to the last position that was still free and remove only the velocity component
+            // that points into the obstacle (a hit is always near a surface, so the contact normal is
+            // read off the nearest hit): the body stops tunnelling but keeps sliding along the wall.
+            // Zeroing the whole velocity here used to bring fast bodies to a dead stop every step,
+            // which pinned wheels that grazed the ground while driving.
+            b.x = px
+            b.y = py
+            val len = sqrt(travel2)
+            val dirX = if (len > 1e-6f) dx / len else 0f
+            val dirY = if (len > 1e-6f) dy / len else 0f
+            val into = b.vx * dirX + b.vy * dirY
+            if (into > 0f) {
+                b.vx -= dirX * into
+                b.vy -= dirY * into
+            }
+            b.updateAabb()
+            stats.ccdHits++
         }
     }
 
@@ -1038,16 +1134,19 @@ class PhysicsWorld2D {
 
     // ------------------------------------------------------------------ joints
     fun addJoint(j: Joint2D): Joint2D {
+        noCollidePairs.add(pairKey(j.a.go.id, j.b.go.id))
         joints.add(j)
         return j
     }
 
     fun removeJoint(j: Joint2D) {
         joints.remove(j)
+        refreshJointPairs()
     }
 
     fun clearJoints() {
         joints.clear()
+        noCollidePairs.clear()
     }
 
     // ------------------------------------------------------------------ queries
