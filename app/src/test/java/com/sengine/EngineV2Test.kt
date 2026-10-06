@@ -1,54 +1,59 @@
 package com.sengine
 
-import com.sengine.engine.Engine
+import com.sengine.engine.anim.AnimationClip
+import com.sengine.engine.anim.AnimationEvent
+import com.sengine.engine.anim.AnimationSystem
+import com.sengine.engine.anim.Animator
+import com.sengine.engine.anim.ClipProvider
+import com.sengine.engine.anim.LoopMode
 import com.sengine.engine.blueprint.Blueprint
 import com.sengine.engine.blueprint.BlueprintCompiler
 import com.sengine.engine.blueprint.BlueprintNodes
-import com.sengine.engine.core.Animator
-import com.sengine.engine.core.Rigidbody3D
+import com.sengine.engine.core.Collider2D
+import com.sengine.engine.core.GameObject
+import com.sengine.engine.core.Rigidbody2D
+import com.sengine.engine.core.Scene
 import com.sengine.engine.core.SceneSerializer
+import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.fx.ParticleSystem2D
+import com.sengine.engine.math.Rect2
+import com.sengine.engine.physics.PhysicsWorld2D
+import com.sengine.engine.script.ScriptReference
+import com.sengine.engine.tilemap.AutoTile
+import com.sengine.engine.tilemap.TilemapData
+import com.sengine.engine.tilemap.Tileset
+import com.sengine.engine.ui.UiButton
+import com.sengine.engine.ui.UiCanvas
+import com.sengine.engine.ui.UiSystem
+import com.sengine.engine.ui.UiTheme
+import com.sengine.engine.ui.UiAnchor
 import com.sengine.project.AssetLibrary
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.project.ProjectManager
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mozilla.javascript.Context
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
+import java.util.zip.ZipInputStream
 
-/** Headless tests for the Ultimate Edition systems: 3D physics, animation, blueprints and asset store content. */
+/**
+ * Feature tests for the 2D engine systems: animation, particles, tilemaps, physics, UI, blueprints,
+ * the asset store and project export. Everything runs headless (no OpenGL, no Android UI).
+ */
 class EngineV2Test {
 
-    private fun newProject(name: String): Project {
+    private fun tempProject(name: String = "Feature"): Project {
         val dir = Files.createTempDirectory("sengine2").toFile()
-        val p = Project(File(dir, "Test"))
-        p.saveMeta()
-        Templates.all.first { it.name == name }.build(p)
+        val p = Project(File(dir, name))
         p.saveMeta()
         return p
-    }
-
-    private class Run(val engine: Engine, val errors: MutableList<String>)
-
-    private fun start(p: Project): Run {
-        val e = Engine(p, p.loadScene(p.startScene))
-        e.gameView.widthPx = 1600; e.gameView.heightPx = 900
-        val errors = ArrayList<String>()
-        e.listeners.add(object : Engine.Listener {
-            override fun onLog(level: Int, message: String) {
-                if (level >= 2) errors.add(message)
-                println("SIM v2 log[$level]: $message")
-            }
-        })
-        e.play()
-        return Run(e, errors)
-    }
-
-    private fun Run.frames(n: Int, each: (Int) -> Unit = {}) {
-        repeat(n) { i -> each(i); synchronized(engine.lock) { engine.tick(1f / 60f) } }
     }
 
     private fun compiles(js: String, name: String) {
@@ -57,112 +62,184 @@ class EngineV2Test {
             cx.optimizationLevel = -1
             cx.languageVersion = Context.VERSION_ES6
             cx.compileString(js, name, 1, null)
-        } finally { Context.exit() }
-    }
-
-    @Test
-    fun demo3dPhysicsAndPickups() {
-        val p = newProject("3D Demo")
-        val r = start(p)
-        val player = r.engine.scene.find("Player")!!
-        r.frames(90)
-        val rb = player.getAny<Rigidbody3D>()!!
-        println("SIM 3d settled y=${player.y} grounded=${rb.grounded}")
-        assertTrue("3D player should land on the ground", rb.grounded)
-        assertTrue("3D player should rest above ground", player.y > 0f && player.y < 2f)
-        val x0 = player.x
-        r.frames(60) { r.engine.input.joyX = 1f }
-        r.engine.input.joyX = 0f
-        println("SIM 3d moved x0=$x0 x=${player.x}")
-        assertTrue("3D player should move on X", player.x > x0 + 2f)
-        // jump
-        var maxY = player.y
-        r.frames(40) { i -> r.engine.input.rawA = i < 3; maxY = maxOf(maxY, player.y) }
-        r.engine.input.rawA = false
-        println("SIM 3d jump maxY=$maxY")
-        assertTrue("3D player should jump", maxY > 1.5f)
-        // crates should fall and rest (stack stays above ground)
-        val crates = r.engine.scene.objects.filter { it.name == "Crate" }
-        assertTrue("crates resting", crates.all { it.y > 0.2f && it.y < 3f })
-        // pickup
-        val coin = r.engine.scene.objects.first { it.tag == "Coin" }
-        val before = r.engine.scene.objects.count { it.tag == "Coin" }
-        r.frames(60)
-        synchronized(r.engine.lock) { player.x = coin.x; player.z = coin.z; player.y = coin.y }
-        r.frames(3)
-        val after = r.engine.scene.objects.count { it.tag == "Coin" }
-        val label = r.engine.scene.find("ScoreText")!!.getAny<TextRenderer>()!!.text
-        println("SIM 3d coins $before -> $after label='$label'")
-        assertEquals(before - 1, after)
-        assertEquals("Coins left: $after", label)
-        // raycast straight down from above the ground hits the ground
-        val hit = r.engine.physics3D.raycast(r.engine.scene, 15f, 10f, 15f, 0f, -1f, 0f, 50f)
-        println("SIM 3d raycast hit=${hit?.name}")
-        assertEquals("Ground", hit?.name)
-        assertTrue("script errors: ${r.errors}", r.errors.isEmpty())
-    }
-
-    @Test
-    fun animatedPlatformerPlaysClips() {
-        val p = newProject("Animated Platformer")
-        val r = start(p)
-        val hero = r.engine.scene.find("Player")!!
-        r.frames(60)
-        r.frames(30) { r.engine.input.joyX = 1f }
-        val anim = hero.getAny<Animator>()!!
-        println("SIM anim current='${anim.current}' playing=${anim.playing} frame=${anim.frame} x=${hero.x}")
-        assertEquals("HeroRun.anim", anim.current)
-        assertTrue("run animation should play", anim.playing)
-        r.engine.input.joyX = 0f
-        r.frames(10)
-        assertTrue("animation should stop when idle", !anim.playing)
-        val coin = r.engine.scene.objects.first { it.tag == "Coin" }
-        val ca = coin.getAny<Animator>()!!
-        println("SIM coin anim frame=${ca.frame} playing=${ca.playing}")
-        assertTrue("coin spin should autoplay", ca.playing)
-        assertTrue("script errors: ${r.errors}", r.errors.isEmpty())
-    }
-
-    @Test
-    fun blueprintDemoRunsGraphs() {
-        val p = newProject("Blueprint Demo")
-        val r = start(p)
-        val player = r.engine.scene.find("Player")!!
-        r.frames(60)
-        val x0 = player.x
-        r.frames(40) { r.engine.input.joyX = -1f }
-        r.engine.input.joyX = 0f
-        println("SIM bp player x0=$x0 x=${player.x}")
-        assertTrue("blueprint Platformer node should move the player", player.x < x0 - 1.5f)
-        val spinner = r.engine.scene.find("Spinner")!!
-        println("SIM bp spinner rotation=${spinner.rotation}")
-        assertTrue("RotatorBP should spin", spinner.rotation != 0f)
-        val gems = r.engine.scene.objects.count { it.name == "Gem" }
-        val gem = r.engine.scene.objects.first { it.name == "Gem" }
-        synchronized(r.engine.lock) { player.x = gem.x; player.y = gem.y }
-        r.frames(3)
-        val after = r.engine.scene.objects.count { it.name == "Gem" }
-        println("SIM bp gems $gems -> $after")
-        assertEquals(gems - 1, after)
-        assertTrue("script errors: ${r.errors}", r.errors.isEmpty())
-    }
-
-    @Test
-    fun v2TemplatesSerializeRoundTrip() {
-        for (name in listOf("3D Demo", "Animated Platformer", "Blueprint Demo")) {
-            val p = newProject(name)
-            val s = p.loadScene("Main")
-            val json = SceneSerializer.toJson(s).toString()
-            assertEquals(json, SceneSerializer.toJson(SceneSerializer.fromJson(JSONObject(json))).toString())
-            println("SIM template '$name' objects=${s.objects.size}")
+        } finally {
+            Context.exit()
         }
     }
 
+    // ------------------------------------------------------------------ animation
+
     @Test
-    fun everyBlueprintNodeCompilesToValidJs() {
+    fun animationClipGridLoopAndEvents() {
+        val clip = AnimationClip("Run")
+        clip.texture = "HeroRun.png"
+        clip.fps = 10f
+        clip.loop = LoopMode.LOOP
+        clip.buildGrid(4, 1)
+        clip.events.add(AnimationEvent(0.2f, "footstep", "left"))
+
+        assertEquals(4, clip.frameCount)
+        assertEquals(0.4f, clip.duration, 0.001f)
+        val f0 = clip.frameAt(0)!!
+        assertEquals(0f, f0.u0, 0.0001f)
+        assertEquals(0.25f, f0.u1, 0.0001f)
+        assertEquals(0, clip.frameIndexAt(0.05f))
+        assertEquals(1, clip.frameIndexAt(0.15f))
+        assertEquals(0, clip.frameIndexAt(0.45f)) // wraps for looping clips
+
+        val json = clip.toJson()
+        val parsed = AnimationClip.fromJson(JSONObject(json.toString()))
+        assertEquals(clip.frameCount, parsed.frameCount)
+        assertEquals(LoopMode.LOOP, parsed.loop)
+        assertEquals("footstep", parsed.events.first().name)
+        println("SIM anim clip frames=${clip.frameCount} duration=${clip.duration}")
+    }
+
+    @Test
+    fun animationSystemAdvancesFrames() {
+        val clip = AnimationClip("Run")
+        clip.buildGrid(4, 1)
+        clip.fps = 10f
+        val provider = object : ClipProvider {
+            override fun clip(name: String) = if (name == "Run.anim") clip else null
+        }
+        val scene = Scene("Main")
+        val go = scene.create("Hero")
+        go.add(SpriteRenderer().also { it.shape = SpriteRenderer.SHAPE_TEXTURE; it.texture = "HeroRun.png" })
+        val animator = Animator().also { it.clip = "Run.anim"; it.playOnStart = true }
+        go.add(animator)
+        val system = AnimationSystem(provider)
+        // 10 fps clip, 4 frames: frame 1 starts at 0.1s (6 frames at 60 fps)
+        repeat(7) { system.update(scene, 1f / 60f, playing = true) }
+        println("SIM anim system playing=${animator.playing} frame=${animator.frameIndex} time=${animator.time}")
+        assertTrue("animator should be playing", animator.playing)
+        assertEquals("clip should be resolved", "Run", animator.currentClip!!.name)
+        assertEquals("frame index should follow the clip time", 1, animator.frameIndex)
+        assertEquals("the animator reports the clip frame under the clip time",
+            clip.frameIndexAt(animator.time), animator.frameIndex)
+        // the clip loops: after 30 more frames the time wraps back into the clip
+        repeat(30) { system.update(scene, 1f / 60f, playing = true) }
+        assertTrue("looping clip keeps its time inside the clip", animator.time < 0.4f)
+        assertTrue("animation system counted the animator", system.activeAnimators == 1)
+    }
+
+    // ------------------------------------------------------------------ particles
+
+    @Test
+    fun particlesBurstSimulateAndRecycle() {
+        val sys = ParticleSystem2D(64)
+        sys.rate = 0f
+        sys.lifetime = 0.4f
+        sys.lifetimeVariation = 0f
+        sys.speed = 2f
+        sys.burst(40)
+        sys.update(1f / 60f)
+        println("SIM particles alive=${sys.count}")
+        assertTrue("burst should spawn particles", sys.count > 0)
+        var frames = 0
+        while (frames < 120 && sys.count > 0) { sys.update(1f / 60f); frames++ }
+        println("SIM particles after ${frames} frames alive=${sys.count}")
+        assertEquals("particles should expire and be recycled", 0, sys.count)
+        assertTrue("capacity stays bounded", sys.capacity() == 64)
+    }
+
+    // ------------------------------------------------------------------ tilemaps
+
+    @Test
+    fun tilemapChunksAutoTileAndCollisionData() {
+        val map = TilemapData("Level")
+        map.tileWidth = 16; map.tileHeight = 16; map.pixelsPerUnit = 16f
+        assertEquals(1f, map.worldSizeOfTile(), 0.0001f)
+        map.tilesets.add(Tileset("Ground", "Grass.png").also { it.solid.add(1); it.solid.add(2) })
+        val layer = map.layer("Ground")
+        for (x in 0 until 40) layer.set(x, 0, 1)
+        layer.set(40, 0, 0) // empty tiles are stored as 0
+        assertEquals(1, layer.get(5, 0))
+        assertEquals(0, layer.get(5, 1))
+        val expectedChunks = 1 + (39 / layer.chunkSize)
+        assertEquals("chunks are created on demand", expectedChunks, layer.chunkCount())
+        val mask = AutoTile.mask(map, layer, 5, 0, 0)
+        assertTrue("a tile surrounded left/right should produce a mask", mask > 0)
+        val tileset = map.tilesets.firstOrNull()
+        println("SIM tilemap tiles=${layer.chunkCount()} mask=$mask tilesets=$tileset")
+        val json = map.toJson().toString()
+        val parsed = TilemapData.fromJson(JSONObject(json))
+        assertEquals(map.layers.size, parsed.layers.size)
+        assertEquals(1, parsed.layers.first().get(5, 0))
+        assertEquals(0, parsed.layers.first().get(5, 1))
+    }
+
+    // ------------------------------------------------------------------ physics
+
+    @Test
+    fun physicsBodyTypesRaycastAndOverlap() {
+        val scene = Scene("Main")
+        val world = PhysicsWorld2D()
+        val floor = scene.create("Floor").also { it.y = -3f }
+        floor.add(Collider2D().also { it.width = 30f; it.height = 1f })
+        val ball = scene.create("Ball").also { it.y = 2f }
+        ball.add(Collider2D().also { it.shape = Collider2D.SHAPE_CIRCLE; it.radius = 0.5f; it.restitution = 0.2f })
+        ball.add(Rigidbody2D().also { it.bodyType = 0; it.mass = 1f })
+        val mover = scene.create("Mover").also { it.x = -5f }
+        mover.add(Collider2D())
+        mover.add(Rigidbody2D().also { it.bodyType = 1; it.startVx = 2f })
+
+        repeat(240) { world.step(scene, 1f / 60f) }
+        val rb = ball.getAny<Rigidbody2D>()!!
+        println("SIM physics ball y=${ball.y} grounded=${rb.grounded} moverX=${mover.x}")
+        assertTrue("dynamic body should rest on the static floor", rb.grounded)
+        assertTrue("ball rests above the floor", ball.y > -3.5f)
+        assertTrue("kinematic body should keep moving", mover.x > -5f)
+
+        val hit = world.rayCast(6f, 4f, 6f, -6f)
+        assertEquals("raycast should hit the floor", "Floor", hit?.go?.name)
+        assertTrue("overlap query should find bodies", world.overlapCircle(0f, -3f, 4f).isNotEmpty())
+        assertTrue("raycast all returns hits", world.rayCastAll(6f, 4f, 6f, -6f).isNotEmpty())
+    }
+
+    // ------------------------------------------------------------------ UI
+
+    @Test
+    fun uiLayoutAnchorsAndButtonClick() {
+        val scene = Scene("Main")
+        val canvasGo = scene.create("Canvas")
+        val canvas = UiCanvas().also { it.referenceWidth = 1280f; it.referenceHeight = 720f }
+        canvasGo.add(canvas)
+        val buttonGo = scene.create("PlayButton", canvasGo)
+        val button = UiButton().also {
+            it.text = "Play"
+            it.anchor = UiAnchor.MIDDLE_CENTER
+            it.width = 240f; it.height = 72f
+        }
+        buttonGo.add(button)
+
+        val ui = UiSystem()
+        ui.input.screenWidth = 1280f; ui.input.screenHeight = 720f
+        ui.update(scene, 1f / 60f)
+        val rect = button.rect
+        println("SIM ui button rect=(${rect.x},${rect.y},${rect.w},${rect.h})")
+        assertTrue("button should be laid out at the centre of the canvas", rect.x > 400f && rect.x < 800f)
+        assertEquals("button width comes from the widget", 240f, rect.w, 0.01f)
+
+        val cx = rect.x + rect.w / 2f
+        val cy = rect.y + rect.h / 2f
+        ui.input.pointerX = cx; ui.input.pointerY = cy
+        ui.input.pointerDown = true; ui.input.pointerJustDown = true
+        ui.update(scene, 1f / 60f)
+        assertTrue("button should be pressed under the pointer", button.pressed)
+        ui.input.pointerJustDown = false
+        ui.input.pointerJustUp = true; ui.input.pointerDown = false
+        ui.update(scene, 1f / 60f)
+        println("SIM ui clickCount=${button.clickCount} theme=${UiTheme().name}")
+        assertEquals("release over the button should click it", 1, button.clickCount)
+    }
+
+    // ------------------------------------------------------------------ blueprints
+
+    @Test
+    fun blueprintGraphCompilesToJsAndRoundTrips() {
         val bp = Blueprint()
         var prev: Int? = null
-        // one chain per event with every action node attached
         for ((i, def) in BlueprintNodes.all.withIndex()) {
             val n = bp.add(def.type, i * 50f, 0f)
             if (!def.hasIn) { prev = n.id; continue }
@@ -170,9 +247,8 @@ class EngineV2Test {
             if (def.outs.contains("out")) prev = n.id
         }
         val js = BlueprintCompiler.compile(bp)
-        println("SIM bp all-nodes js length=${js.length}")
+        println("SIM blueprint nodes=${BlueprintNodes.all.size} js=${js.length}")
         compiles(js, "all.bp")
-        // JSON round trip
         val bp2 = Blueprint.parse(bp.toJson().toString())
         assertEquals(bp.nodes.size, bp2.nodes.size)
         assertEquals(bp.links.size, bp2.links.size)
@@ -180,20 +256,86 @@ class EngineV2Test {
         compiles(BlueprintCompiler.compile(Blueprint.defaultGraph()), "default.bp")
     }
 
+    // ------------------------------------------------------------------ content
+
     @Test
-    fun storeScriptsAndBlueprintsAreValid() {
-        for ((name, _, code) in AssetLibrary.Scripts.all) compiles(code, name)
+    fun assetStoreIsStrictlyTwoD() {
+        val categories = AssetLibrary.categories
+        assertFalse("no 3D category may exist", categories.any { it.contains("3D", true) })
+        val forbidden = listOf(".obj", ".gltf", ".glb", ".fbx", ".dae", ".mtl")
+        for (item in AssetLibrary.items) {
+            for (file in item.files) {
+                assertFalse("3D asset found: $file", forbidden.any { file.endsWith(it, true) })
+            }
+            assertFalse("3D item found: ${item.title}", item.title.contains("3D", true))
+        }
+        for ((name, _, code) in AssetLibrary.Scripts.all) {
+            assertFalse("3D script found: $name", code.contains("3D") || code.contains("MeshRenderer") || code.contains("Rigidbody3D"))
+            compiles(code, name)
+        }
+        for ((name, _, code) in AssetLibrary.Shaders.all) {
+            assertFalse("shader mentions 3D meshes: $name", code.contains("MeshRenderer") || code.contains("3D"))
+        }
+        val titles = AssetLibrary.items.map { it.title }
+        assertTrue("wheel sprite for vehicles", titles.contains("Rolling Wheel"))
+        assertTrue("hill climb pack", titles.contains("Hill Climb Pack"))
         val dir = Files.createTempDirectory("store").toFile()
         val p = Project(File(dir, "Store")); p.saveMeta()
-        for (item in AssetLibrary.items.filter { it.category == "Blueprints" || it.category == "3D Models" || it.category == "Sounds" }) {
+        for (item in AssetLibrary.items.filter { it.category == "Blueprints" || it.category == "Sounds" || it.category == "Scripts" || it.category == "Shaders" }) {
             item.install(p)
             assertTrue("${item.title} installed", item.installed(p))
         }
-        for (bpName in p.listAssets().filter { it.endsWith(".bp") }) compiles(BlueprintCompiler.compile(Blueprint.parse(p.readAsset(bpName)!!)), bpName)
         val wav = p.assetFile("coin.wav").readBytes()
-        assertEquals("RIFF", String(wav, 0, 4)); assertEquals("WAVE", String(wav, 8, 4))
-        val obj = p.readAsset("Tree.obj")!!
-        assertTrue(obj.lines().count { it.startsWith("v ") } > 20 && obj.lines().count { it.startsWith("f ") } > 20)
-        println("SIM store items=${AssetLibrary.items.size}")
+        assertEquals("RIFF", String(wav, 0, 4))
+        println("SIM store items=${AssetLibrary.items.size} categories=${AssetLibrary.categories.size}")
+    }
+
+    @Test
+    fun scriptReferenceIsTwoDOnlyAndMatchesRuntime() {
+        val text = ScriptReference.GROUPS.joinToString("\n") { it.second.joinToString("\n") }
+        for (token in listOf("3D", "Mesh", "GLTF", "rotY", "rotZ", "self.z ", "vz")) {
+            assertFalse("script reference must not mention $token", text.contains(token))
+        }
+        for (token in listOf("self.vx", "self.vy", "self.rotation", "physics.raycast", "particles.burst", "camera.shake", "input.axisX", "self.play")) {
+            assertTrue("reference should document $token", text.contains(token))
+        }
+        val templates = com.sengine.project.ScriptTemplates
+        assertTrue("script templates exist", templates.names.size >= 10)
+        for (name in templates.names) compiles(templates.get(name), "template.js")
+    }
+
+    @Test
+    fun projectExportZipContainsSceneAndAssets() {
+        val p = tempProject("Exported")
+        val scene = Scene("Main")
+        scene.create("Hero").also { it.add(TextRenderer().also { t -> t.text = "hi" }) }
+        p.saveScene(scene)
+        p.startScene = "Main"
+        p.writeAsset("notes.txt", "hello")
+        val out = ByteArrayOutputStream()
+        ProjectManager.exportZip(p, out)
+        val bytes = out.toByteArray()
+        assertTrue("zip should not be empty", bytes.size > 100)
+        val entries = ArrayList<String>()
+        ZipInputStream(bytes.inputStream()).use { zip ->
+            var e = zip.nextEntry
+            while (e != null) { entries.add(e.name); e = zip.nextEntry }
+        }
+        println("SIM export entries=${entries.size} $entries")
+        assertTrue("scene is exported", entries.any { it.contains("scenes/Main") })
+        assertTrue("assets are exported", entries.any { it.contains("notes.txt") })
+    }
+
+    /** Guards the documented 2D contract: the serializer never writes 3D transform fields. */
+    @Test
+    fun serializerWritesNoThreeDFields() {
+        val scene = Scene("Main")
+        scene.create("Obj").also { it.add(SpriteRenderer()) }
+        val json = SceneSerializer.toJson(scene).toString()
+        assertFalse("no Z position is serialised", json.contains("\"z\""))
+        assertFalse("no scaleZ is serialised", json.contains("scaleZ"))
+        assertFalse("no rotation X/Y is serialised", json.contains("rotX") || json.contains("rotY"))
+        assertNotNull(GameObject(1L, "test"))
+        Rect2().also { it.set(0f, 0f, 1f, 1f) }
     }
 }
