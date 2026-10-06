@@ -1,5 +1,8 @@
 package com.sengine.engine.core
 
+import kotlin.math.abs
+import kotlin.math.max
+
 import com.sengine.engine.physics.Body2D
 import com.sengine.engine.physics.CircleShape
 import com.sengine.engine.physics.DistanceJoint2D
@@ -168,22 +171,37 @@ class Collider2D : Component() {
 
     val layerMask: Int get() = PhysicsLayers.bit(layer)
 
-    fun buildShape(): Shape2D = when (shape) {
-        1 -> CircleShape(radius.coerceAtLeast(0.001f))
-        2 -> PolygonShape.capsule(radius.coerceAtLeast(0.001f), height.coerceAtLeast(radius * 2f + 0.001f))
-        3 -> polygonPoints()?.let { PolygonShape(it) } ?: PolygonShape.ofSize(width, height)
-        else -> PolygonShape.ofSize(width.coerceAtLeast(0.001f), height.coerceAtLeast(0.001f))
+    /**
+     * Builds the physics shape. Collider dimensions are authored in the object's local space and are
+     * scaled by the object transform just like a sprite is, so a 1x1 collider on a 4x6 object covers
+     * the whole object. Pass the object scale to bake it in.
+     */
+    fun buildShape(scaleX: Float = 1f, scaleY: Float = 1f): Shape2D {
+        val sx = if (scaleX == 0f) 1f else abs(scaleX)
+        val sy = if (scaleY == 0f) 1f else abs(scaleY)
+        return when (shape) {
+            1 -> CircleShape((radius * max(sx, sy)).coerceAtLeast(0.001f))
+            2 -> PolygonShape.capsule(
+                (radius * max(sx, sy)).coerceAtLeast(0.001f),
+                (height * sy).coerceAtLeast(radius * 2f * sy + 0.001f)
+            )
+            3 -> polygonPoints(sx, sy)?.let { PolygonShape(it) } ?: PolygonShape.ofSize(width * sx, height * sy)
+            else -> PolygonShape.ofSize(
+                (width * sx).coerceAtLeast(0.001f),
+                (height * sy).coerceAtLeast(0.001f)
+            )
+        }
     }
 
-    private fun polygonPoints(): FloatArray? {
+    private fun polygonPoints(scaleX: Float = 1f, scaleY: Float = 1f): FloatArray? {
         val parts = points.trim().split(Regex("[\\s;]+")).filter { it.isNotBlank() }
         if (parts.size < 3) return null
         val out = FloatArray(parts.size * 2)
         parts.forEachIndexed { i, p ->
             val xy = p.split(',')
             if (xy.size != 2) return null
-            out[i * 2] = xy[0].trim().toFloatOrNull() ?: return null
-            out[i * 2 + 1] = xy[1].trim().toFloatOrNull() ?: return null
+            out[i * 2] = (xy[0].trim().toFloatOrNull() ?: return null) * scaleX
+            out[i * 2 + 1] = (xy[1].trim().toFloatOrNull() ?: return null) * scaleY
         }
         return out
     }
@@ -329,7 +347,7 @@ class WheelJoint : JointComponent() {
     override val type = "WheelJoint"
     var axisX = 0f
     var axisY = 1f
-    var springFrequency = 2.2f
+    var springFrequency = 4.5f
     var springDampingRatio = 0.65f
     var enableMotor = false
     var motorSpeed = 0f

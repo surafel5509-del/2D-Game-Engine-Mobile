@@ -117,6 +117,13 @@ class Body2D internal constructor(val go: GameObject, var type: Type) {
     /** User data for gameplay code (weapon owner, damage, material name...). */
     var userData: Any? = null
 
+    /** Object scale the collider was last built with (the shape itself is pre-scaled). */
+    var shapeScaleX = 1f
+    var shapeScaleY = 1f
+
+    /** Effective collision radius of the (already scaled) shape. */
+    val radius get() = if (shape is CircleShape) (shape as CircleShape).radius else shape.boundingRadius()
+
     /** Contact/broadphase bookkeeping. */
     internal val aabb = Rect2()
     internal var proxyId = -1
@@ -169,6 +176,17 @@ class Body2D internal constructor(val go: GameObject, var type: Type) {
     fun refreshMass() {
         val md = shape.computeMass(density)
         setMassData(md)
+    }
+
+    /**
+     * Sets the body mass explicitly (Kg), keeping the shape's inertia scaled by the same factor.
+     * A rigidbody with `mass > 0` is authoritative; a mass of 0 leaves the mass to the collider
+     * density. Without this the `Rigidbody2D.mass` property had no effect at all.
+     */
+    fun overrideMass(m: Float) {
+        val md = shape.computeMass(if (density > 0f) density else 1f)
+        val scale = if (md.mass > 1e-6f) m / md.mass else 1f
+        setMassData(MassData(max(1e-4f, m), max(1e-5f, md.inertia * scale)))
     }
 
     fun wake() {

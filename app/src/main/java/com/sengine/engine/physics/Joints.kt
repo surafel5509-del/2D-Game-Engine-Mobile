@@ -36,12 +36,28 @@ abstract class Joint2D(val a: Body2D, val b: Body2D) {
     open fun debugInfo(): String = "reaction=${"%.1f".format(reactionForce)}N"
 }
 
+/**
+ * Bounded position correction along a direction: moves [a] by `+dir * error / invMassSum * invMassA`
+ * and [b] by the opposite amount so the relative error shrinks. Position projection changes no
+ * velocity, so it can never feed energy back into the simulation - this is what keeps joints tight
+ * without the energy pump of a velocity-level Baumgarte bias.
+ */
+internal fun projectAlong(a: Body2D, b: Body2D, dirX: Float, dirY: Float, error: Float, maxCorrection: Float) {
+    val invMassSum = a.invMass + b.invMass
+    if (invMassSum <= 1e-9f || error == 0f || !error.isFinite()) return
+    val amount = error.coerceIn(-maxCorrection, maxCorrection) / invMassSum
+    a.x += dirX * amount * a.invMass
+    a.y += dirY * amount * a.invMass
+    b.x -= dirX * amount * b.invMass
+    b.y -= dirY * amount * b.invMass
+    a.updateAabb(); b.updateAabb()
+}
+
 /** Shared 2x2 point-to-point constraint maths used by hinge, weld, prismatic and motor joints. */
 internal class PointConstraint {
     var rAx = 0f; var rAy = 0f
     var rBx = 0f; var rBy = 0f
     var impulseX = 0f; var impulseY = 0f
-    var biasX = 0f; var biasY = 0f
 
     private var m00 = 0f; private var m01 = 0f; private var m11 = 0f
     private var accumulatedBiasX = 0f; private var accumulatedBiasY = 0f
@@ -74,12 +90,29 @@ internal class PointConstraint {
         }
     }
 
-    /** Explicit position bias (Baumgarte): [bx],[by] is the world-space position error. */
-    fun setBias(bx: Float, by: Float, beta: Float, dt: Float) {
-        val k = if (dt > 0f) beta / dt else 0f
-        biasX = bx * k
-        biasY = by * k
+    /**
+     * Split-impulse position correction: removes [beta] of the anchor error (errX, errY) per step by
+     * moving the bodies, without touching any velocity. A velocity-level Baumgarte bias is only safe
+     * when a position solver also removes the error - otherwise the bias turns a persistent error
+     * into a constant "conveyor" velocity that never decays (it used to make vehicles creep).
+     */
+    fun solvePosition(a: Body2D, b: Body2D, errX: Float, errY: Float, beta: Float, maxCorrection: Float = 0.02f) {
+        val invMassSum = a.invMass + b.invMass
+        if (invMassSum <= 1e-9f) return
+        var cx = errX * beta / invMassSum
+        var cy = errY * beta / invMassSum
+        val mag = sqrt(cx * cx + cy * cy)
+        if (mag > maxCorrection) {
+            val sc = maxCorrection / mag
+            cx *= sc; cy *= sc
+        }
+        a.x += cx * a.invMass
+        a.y += cy * a.invMass
+        b.x -= cx * b.invMass
+        b.y -= cy * b.invMass
+        a.updateAabb(); b.updateAabb()
     }
+
 
     /** Solves and applies the impulse (accumulated across iterations for stability). */
     fun solveVelocity(a: Body2D, b: Body2D) {
@@ -87,8 +120,8 @@ internal class PointConstraint {
         val vay = a.vy + a.angularVelocity * rAx
         val vbx = b.vx - b.angularVelocity * rBy
         val vby = b.vy + b.angularVelocity * rBx
-        val cx = vbx - vax + biasX + softGamma * impulseX
-        val cy = vby - vay + biasY + softGamma * impulseY
+        val cx = vbx - vax + softGamma * impulseX
+        val cy = vby - vay + softGamma * impulseY
         val px = -(m00 * cx + m01 * cy)
         val py = -(m01 * cx + m11 * cy)
         impulseX += px; impulseY += py
@@ -175,8 +208,8 @@ class HingeJoint2D(
         val pb = b.pointToWorld(localBx, localBy)
         anchorX = pa[0]; anchorY = pa[1]
         point.prepare(a, b, pa[0], pa[1], softness = 0.002f, dt = dt)
-        point.setBias(pb[0] - pa[0], pb[1] - pa[1], 0.25f, dt)
         point.solveVelocity(a, b)
+        point.solvePosition(a, b, pb[0] - pa[0], pb[1] - pa[1], 0.25f)
 
         val invI = a.invInertia + b.invInertia
         if (invI > 1e-9f) {
@@ -360,8 +393,13 @@ class WheelJoint2D(
     var axisX: Float = axisX
     var axisY: Float = axisY
 
-    /** Suspension spring frequency in Hz (1.5 - 4 typical for a car). */
-    var springFrequency = 2.2f
+    /**
+     * Suspension spring frequency in Hz. The static sag is `gravity / (2*pi*f)^2`, so with the
+     * default gravity of 30 units/s^2 a 4.5 Hz spring sags ~0.037 units - inside the travel limits
+     * of a normal wheel. A softer spring bottoms out on its limits and the car rides on the hard
+     * stop instead of its suspension.
+     */
+    var springFrequency = 4.5f
     var springDampingRatio = 0.65f
 
     /** Travel limits relative to the rest position; 0,0 disables them. */
@@ -383,14 +421,24 @@ class WheelJoint2D(
     var suspensionForce = 0f; private set
     /** Wheel slip in m/s (surface speed vs. body speed) - drives traction and effects. */
     var slipSpeed = 0f; private set
+    /** Sideways (non-suspension) offset between the wheel and the chassis; debug/inspector value. */
+    var lateralError = 0f; private set
+    /** Sideways impulse applied in the last step (N.s); zero means the constraint is satisfied. */
+    var lateralImpulse = 0f; private set
+    /** Relative speed along the suspension axis from the last step (m/s). */
+    var axialVelocity = 0f; private set
 
     private var perpImpulse = 0f
     private var motorImpulse = 0f
     private var springForce = 0f
     private var dampForce = 0f
 
-    /** Upper bound for the suspension force (per unit of supported mass). */
-    var maxForceFactor = 900f
+    /**
+     * Upper bound for how fast the suspension may compress or extend per step (world units/s).
+     * The spring is solved in velocity space against the axis effective mass, so this is the only
+     * clamp needed and a light wheel can never be launched by a force sized for the whole car.
+     */
+    var maxSuspensionSpeed = 4f
 
     init {
         val la = a.pointToLocal(anchorAX, anchorAY)
@@ -431,52 +479,75 @@ class WheelJoint2D(
         val kPerp = a.invMass + b.invMass +
             a.invInertia * (rAx * perpY - rAy * perpX) * (rAx * perpY - rAy * perpX) +
             b.invInertia * (rBx * perpY - rBy * perpX) * (rBx * perpY - rBy * perpX)
+        val cPerp = dx * perpX + dy * perpY
+        lateralError = cPerp
+        axialVelocity = if (relAxial.isFinite()) relAxial else 0f
         if (kPerp > 1e-9f) {
             val massPerp = 1f / kPerp
             val cdotP = (vbx - vax) * perpX + (vby - vay) * perpY
-            val cPerp = dx * perpX + dy * perpY
-            // Soft positional bias, clamped: a hard Baumgarte term here is what used to blow up.
-            val bias = (0.15f / dt * cPerp).coerceIn(-2f, 2f)
-            val lambda = -massPerp * (cdotP + bias)
+            // Pure velocity constraint (no bias): momentum is conserved exactly and the wheel can
+            // never be pushed sideways by a stale position error. The drift that remains is removed
+            // by the bounded position projection below.
+            val lambda = -massPerp * cdotP
             perpImpulse += lambda
+            lateralImpulse = lambda
             applyAxis(a, b, rAx, rAy, rBx, rBy, perpX, perpY, lambda)
+            // +cPerp is the signed error along perp: passing it as the "error to remove" shrinks it.
+            // Projection changes no velocity, so it cannot feed energy back; the bound keeps a wheel
+            // that is being dragged sideways from snapping so hard that it tears off the chassis.
+            projectAlong(a, b, perpX, perpY, cPerp * 0.4f, 0.08f)
         }
 
-        // ---- explicit suspension spring + damper along the axis
-        // The suspension carries body A (the chassis), not the reduced mass of the pair: sizing the
-        // spring this way keeps the static compression inside the travel range for real vehicles.
-        val supportMass = if (a.invMass > 1e-9f) 1f / a.invMass else 1f / max(1e-6f, a.invMass + b.invMass)
-        val omega = M.TAU * springFrequency.coerceIn(0.1f, 30f)
-        val k = supportMass * omega * omega
-        // critical damping c = 2 * m * omega * ratio
-        val c = 2f * supportMass * omega * springDampingRatio
+        // ---- suspension: damped spring solved in velocity space (semi-implicit)
+        // travel is the current deviation from the rest position (negative = compressed). The
+        // acceleration of the spring (a = -w^2 x - 2*zeta*w v) is integrated for one step into a
+        // *target* relative axial velocity, and the impulse is computed from the axis effective
+        // mass. Because the target velocity is bounded, the suspension can never inject more than
+        // maxSuspensionSpeed into the wheel per step - an explicit force sized for the chassis mass
+        // used to fling the (much lighter) wheel at 100 m/s and destroy every vehicle.
+        val kAxis = a.invMass + b.invMass +
+            a.invInertia * (rAx * ay - rAy * ax) * (rAx * ay - rAy * ax) +
+            b.invInertia * (rBx * ay - rBy * ax) * (rBx * ay - rBy * ax)
         var axialVel = relAxial
         if (!axialVel.isFinite()) axialVel = 0f
-        var travel = translation - restTranslation
-        if (!travel.isFinite() || abs(travel) > 4f) travel = 0f
-        var force = -k * travel - c * axialVel
-        val maxForce = supportMass * maxForceFactor
-        force = force.coerceIn(-maxForce, maxForce)
-        if (!force.isFinite()) force = 0f
-        springForce = -k * travel
-        dampForce = -c * axialVel
-        val impulse = force * dt
-        applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, impulse)
-        suspensionForce = abs(force)
-        slipSpeed = abs(axialVel)
+        // Clamp (never discard) the travel: zeroing it in the old version silently disabled the
+        // spring once a wheel was pushed out of range, so the wheel fell away for ever.
+        var travel = (translation - restTranslation)
+        if (!travel.isFinite()) travel = 0f
+        travel = travel.coerceIn(-4f, 4f)
+        if (kAxis > 1e-9f) {
+            val massAxis = 1f / kAxis
+            val omega = M.TAU * springFrequency.coerceIn(0.1f, 30f)
+            var accel = -(omega * omega) * travel - 2f * springDampingRatio * omega * axialVel
+            if (!accel.isFinite()) accel = 0f
+            val targetVel = (axialVel + accel * dt).coerceIn(-maxSuspensionSpeed, maxSuspensionSpeed)
+            val lambda = massAxis * (targetVel - axialVel)
+            springForce = (omega * omega) * travel * massAxis
+            dampForce = 2f * springDampingRatio * omega * axialVel * massAxis
+            applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, lambda)
+            suspensionForce = abs(lambda) / dt
+            slipSpeed = abs(axialVel)
+        }
 
         // ---- travel limits: velocity clamp + bounded position projection
+        // Sign convention: `translation` is the wheel's offset from the anchor along the axis, so
+        // hitting the UPPER limit means the translation must stop growing (impulse <= 0) and hitting
+        // the LOWER limit means it must stop shrinking (impulse >= 0). Getting this backwards makes
+        // the limit push the wheel *away* from the chassis, one step at a time, forever.
         if (enableLimit && upperTranslation > lowerTranslation) {
-            val over = translation - upperTranslation
-            val under = translation - lowerTranslation
-            if (over > 0f || under < 0f) {
-                val mass = if (kPerp > 1e-9f) 1f / (a.invMass + b.invMass) else 0f
-                val cdot = axialVel
-                if (over > 0f) applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, max(-mass * cdot, 0f))
-                else applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, min(-mass * cdot, 0f))
+            val mass = if (kPerp > 1e-9f) 1f / (a.invMass + b.invMass) else 0f
+            when {
+                // too far extended: stop the axial velocity (<= 0) and pull the wheel back down
+                translation > upperTranslation -> {
+                    applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, min(-mass * axialVel, 0f))
+                    projectAlong(a, b, ax, ay, translation - upperTranslation, 0.02f)
+                }
+                // too far compressed: stop the axial velocity (>= 0) and push the wheel back up
+                translation < lowerTranslation -> {
+                    applyAxis(a, b, rAx, rAy, rBx, rBy, ax, ay, max(-mass * axialVel, 0f))
+                    projectAlong(a, b, ax, ay, lowerTranslation - translation, 0.02f)
+                }
             }
-            val excess = max(translation - upperTranslation, lowerTranslation - translation)
-            if (excess > 0f) projectAxis(a, b, ax, ay, excess)
         }
 
         // ---- drive motor (torque limited, applied to the wheel spin relative to the chassis)
@@ -493,10 +564,17 @@ class WheelJoint2D(
         }
 
         if (!translation.isFinite() || abs(translation) > 6f) {
-            // Re-seat a wheel that got pushed out of the world instead of poisoning the simulation.
+            // Re-seat a wheel that got pushed out of the world instead of poisoning the simulation:
+            // snap the bodies back onto the suspension axis at the rest distance.
             translation = restTranslation
             perpImpulse = 0f
             motorImpulse = 0f
+            val pa2 = a.pointToWorld(localAx, localAy)
+            val pb2 = b.pointToWorld(localBx, localBy)
+            val err = (pb2[0] - pa2[0]) * ax + (pb2[1] - pa2[1]) * ay - restTranslation
+            b.x -= ax * err
+            b.y -= ay * err
+            b.updateAabb()
         }
         reactionForce = max(suspensionForce, abs(perpImpulse) / max(dt, 1e-5f))
         checkBreak()
@@ -512,21 +590,6 @@ class WheelJoint2D(
 
     /** The wheel stopped touching the ground: no suspension force is carried. */
     fun onWheelAirborne() { suspensionForce = 0f }
-
-    /**
-     * Moves the wheel back inside its travel limits by shifting both bodies along the suspension
-     * axis, split by inverse mass. Position projection cannot add energy.
-     */
-    private fun projectAxis(a: Body2D, b: Body2D, ax: Float, ay: Float, excess: Float) {
-        val invMassSum = a.invMass + b.invMass
-        if (invMassSum <= 1e-9f) return
-        val correction = excess.coerceIn(0f, 0.25f) / invMassSum
-        a.x += ax * correction * a.invMass
-        a.y += ay * correction * a.invMass
-        b.x -= ax * correction * b.invMass
-        b.y -= ay * correction * b.invMass
-        a.updateAabb(); b.updateAabb()
-    }
 
     private fun applyAxis(a: Body2D, b: Body2D, rAx: Float, rAy: Float, rBx: Float, rBy: Float, ax: Float, ay: Float, lambda: Float) {
         if (lambda == 0f || !lambda.isFinite()) return
@@ -567,8 +630,8 @@ class WeldJoint2D(
         val pb = b.pointToWorld(localBx, localBy)
         anchorX = pa[0]; anchorY = pa[1]
         point.prepare(a, b, pa[0], pa[1], softness = 0.001f, dt = dt)
-        point.setBias(pb[0] - pa[0], pb[1] - pa[1], 0.3f, dt)
         point.solveVelocity(a, b)
+        point.solvePosition(a, b, pb[0] - pa[0], pb[1] - pa[1], 0.3f)
         val invI = a.invInertia + b.invInertia
         if (invI > 1e-9f) {
             val c = M.wrapAngle(b.angle - a.angle - referenceAngle)
@@ -632,8 +695,8 @@ class PrismaticJoint2D(
         val projY = pa[1] + ay * translation
         val point = this.point
         point.prepare(a, b, projX, projY, softness = 0.001f, dt = dt)
-        point.setBias(pb[0] - projX, pb[1] - projY, 0.25f, dt)
         point.solveVelocity(a, b)
+        point.solvePosition(a, b, pb[0] - projX, pb[1] - projY, 0.25f)
         val invI = a.invInertia + b.invInertia
         if (invI > 1e-9f) {
             val lambda = -((b.angularVelocity - a.angularVelocity) + (b.angle - a.angle) * 0.3f / dt) / invI
