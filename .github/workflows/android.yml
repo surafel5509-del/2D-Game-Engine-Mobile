@@ -27,7 +27,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest 2>&1 | tee test.log; code=${PIPESTATUS[0]}
-          msg=$(grep -E "^e: |SIM |FAILED|Exception|expected|AssertionError|at com.sengine" test.log | head -80 | sed ':a;N;$!ba;s/\n/%0A/g')
+          msg=$(grep -E "^e: |SIM |FAILED|Exception|expected|AssertionError|at com.sengine|error:|ERROR|What went wrong|Caused by|> Task .*FAILED|^\s+>" test.log | head -80 | sed ':a;N;$!ba;s/\n/%0A/g')
           echo "::notice title=Engine tests::${msg}"
           exit $code
 
@@ -36,7 +36,7 @@ jobs:
           chmod +x gradlew
           set -o pipefail
           ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log || {
-            msg=$(grep -E "^e: |error:|What went wrong|Could not|FAILURE" build.log | head -60 | sed ':a;N;$!ba;s/\n/%0A/g')
+            msg=$(grep -E "^e: |error:|ERROR|What went wrong|Could not|FAILURE|Caused by|> Task .*FAILED|^\s+>" build.log | head -60 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=Build errors::${msg}"
             exit 1
           }
@@ -50,7 +50,7 @@ jobs:
           export SENGINE_KEYSTORE=$PWD/export-test.p12
           export SENGINE_EXPORT_OUT=$PWD/SpaceRun-game.apk
           ./gradlew --no-daemon testDebugUnitTest --tests com.sengine.ApkExportTest --rerun 2>&1 | tee export.log || {
-            msg=$(grep -E "SIM |FAILED|Exception|expected|AssertionError|at com.sengine" export.log | head -60 | sed ':a;N;$!ba;s/\n/%0A/g')
+            msg=$(grep -E "SIM |FAILED|Exception|expected|AssertionError|at com.sengine|error:|ERROR|What went wrong|Caused by|> Task .*FAILED|^\s+>" export.log | head -60 | sed ':a;N;$!ba;s/\n/%0A/g')
             echo "::error title=Export test::${msg}"; exit 1; }
           BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
           out=$("$BT/apksigner" verify --verbose --print-certs SpaceRun-game.apk 2>&1) || { echo "::error title=apksigner::$(echo "$out" | sed ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
