@@ -1,303 +1,514 @@
 package com.sengine.engine.render
 
 import android.opengl.GLES20
-import com.sengine.project.Project
 
-/** Sprite program (built-in or user `effect()` shader). */
-class SpriteProgram(val id: Int) {
-    val aPos = GLES20.glGetAttribLocation(id, "aPos")
-    val uMVP = GLES20.glGetUniformLocation(id, "uMVP")
-    val uColor = GLES20.glGetUniformLocation(id, "uColor")
-    val uTex = GLES20.glGetUniformLocation(id, "uTex")
-    val uUseTex = GLES20.glGetUniformLocation(id, "uUseTex")
-    val uShape = GLES20.glGetUniformLocation(id, "uShape")
-    val uAA = GLES20.glGetUniformLocation(id, "uAA")
-    val uUV = GLES20.glGetUniformLocation(id, "uUV")
-    val uTime = GLES20.glGetUniformLocation(id, "uTime")
-    val uParam = GLES20.glGetUniformLocation(id, "uParam")
-    val uResolution = GLES20.glGetUniformLocation(id, "uResolution")
+/**
+ * All GLSL ES 1.0 programs used by the 2D renderer.
+ *
+ * The engine is strictly 2D: every shader here works on screen-aligned quads (sprites, shapes,
+ * glyphs, particles, light gradients, blur and post effects). There is no 3D lighting, no normal
+ * mapping in 3D space and no mesh pipeline.
+ */
+object ShaderSources {
+
+    /** Shared vertex shader for every batched 2D quad: world position, uv and packed colour. */
+    const val QUAD_VS = """
+attribute vec2 aPos;
+attribute vec2 aUV;
+attribute vec4 aColor;
+uniform mat4 uMVP;
+varying vec2 vUV;
+varying vec4 vColor;
+void main() {
+    vUV = aUV;
+    vColor = aColor;
+    gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
+}
+"""
+
+    /**
+     * Sprite fragment shader with the full 2D material feature set (dissolve, outline, glow,
+     * grayscale, colour replacement, hit flash, water wobble, heat distortion).
+     */
+    const val SPRITE_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform vec2 uTexel;
+uniform float uTime;
+uniform float uDissolve;
+uniform float uDissolveEdge;
+uniform float uOutline;
+uniform vec4 uOutlineColor;
+uniform float uGlow;
+uniform float uGray;
+uniform float uDistort;
+uniform float uWater;
+uniform float uHeat;
+uniform float uFlash;
+uniform vec4 uFlashColor;
+uniform vec4 uReplaceFrom;
+uniform vec4 uReplaceTo;
+uniform float uReplaceAmt;
+
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
-/** Lit 3D mesh program. */
-class MeshProgram(val id: Int) {
-    val aPos = GLES20.glGetAttribLocation(id, "aPos")
-    val aNormal = GLES20.glGetAttribLocation(id, "aNormal")
-    val aUV = GLES20.glGetAttribLocation(id, "aUV")
-    val uMVP = GLES20.glGetUniformLocation(id, "uMVP")
-    val uModel = GLES20.glGetUniformLocation(id, "uModel")
-    val uNormalMat = GLES20.glGetUniformLocation(id, "uNormalMat")
-    val uColor = GLES20.glGetUniformLocation(id, "uColor")
-    val uTex = GLES20.glGetUniformLocation(id, "uTex")
-    val uUseTex = GLES20.glGetUniformLocation(id, "uUseTex")
-    val uTiling = GLES20.glGetUniformLocation(id, "uTiling")
-    val uCamPos = GLES20.glGetUniformLocation(id, "uCamPos")
-    val uAmbient = GLES20.glGetUniformLocation(id, "uAmbient")
-    val uDirDir = GLES20.glGetUniformLocation(id, "uDirDir")
-    val uDirColor = GLES20.glGetUniformLocation(id, "uDirColor")
-    val uPointPos = GLES20.glGetUniformLocation(id, "uPointPos")
-    val uPointColor = GLES20.glGetUniformLocation(id, "uPointColor")
-    val uSpec = GLES20.glGetUniformLocation(id, "uSpec")
-    val uShine = GLES20.glGetUniformLocation(id, "uShine")
-    val uEmission = GLES20.glGetUniformLocation(id, "uEmission")
-    val uUnlit = GLES20.glGetUniformLocation(id, "uUnlit")
-    val uFogColor = GLES20.glGetUniformLocation(id, "uFogColor")
-    val uFog = GLES20.glGetUniformLocation(id, "uFog")
-    val uTime = GLES20.glGetUniformLocation(id, "uTime")
-    val uParam = GLES20.glGetUniformLocation(id, "uParam")
-    val uResolution = GLES20.glGetUniformLocation(id, "uResolution")
+void main() {
+    vec2 uv = vUV;
+    if (uDistort > 0.001) {
+        float w = sin(uv.y * 24.0 + uTime * 4.0) * 0.006 * uDistort;
+        uv.x += w;
+    }
+    if (uWater > 0.001) {
+        uv.x += sin(uv.y * 40.0 + uTime * 3.0) * 0.012 * uWater;
+        uv.y += cos(uv.x * 34.0 - uTime * 2.2) * 0.010 * uWater;
+        uv += vec2(sin(uTime * 1.7) * 0.002, 0.0) * uWater;
+    }
+    if (uHeat > 0.001) {
+        uv.y += sin(uv.x * 30.0 + uTime * 6.0) * 0.010 * uHeat;
+        uv.x += cos(uv.y * 26.0 + uTime * 5.0) * 0.008 * uHeat;
+    }
+    vec4 tex = texture2D(uTex, uv);
+    vec4 col = tex * vColor;
+    if (uReplaceAmt > 0.001) {
+        float d = distance(tex.rgb, uReplaceFrom.rgb);
+        float m = 1.0 - clamp(d / max(uReplaceFrom.a, 0.001), 0.0, 1.0);
+        col.rgb = mix(col.rgb, uReplaceTo.rgb, m * uReplaceAmt);
+    }
+    if (uGray > 0.001) {
+        float l = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+        col.rgb = mix(col.rgb, vec3(l), clamp(uGray, 0.0, 1.0));
+    }
+    if (uGlow > 0.001) {
+        float a = 0.0;
+        a += texture2D(uTex, uv + vec2(uTexel.x * 3.0, 0.0)).a;
+        a += texture2D(uTex, uv - vec2(uTexel.x * 3.0, 0.0)).a;
+        a += texture2D(uTex, uv + vec2(0.0, uTexel.y * 3.0)).a;
+        a += texture2D(uTex, uv - vec2(0.0, uTexel.y * 3.0)).a;
+        col.rgb += uOutlineColor.rgb * a * 0.25 * uGlow;
+    }
+    if (uOutline > 0.001) {
+        float around = 0.0;
+        around = max(around, texture2D(uTex, uv + vec2(uTexel.x * 2.0, 0.0)).a);
+        around = max(around, texture2D(uTex, uv - vec2(uTexel.x * 2.0, 0.0)).a);
+        around = max(around, texture2D(uTex, uv + vec2(0.0, uTexel.y * 2.0)).a);
+        around = max(around, texture2D(uTex, uv - vec2(0.0, uTexel.y * 2.0)).a);
+        around = max(around, texture2D(uTex, uv + vec2(uTexel.x * 2.0, uTexel.y * 2.0)).a);
+        around = max(around, texture2D(uTex, uv - vec2(uTexel.x * 2.0, uTexel.y * 2.0)).a);
+        float edge = clamp(around - tex.a, 0.0, 1.0) * uOutline * 8.0;
+        col = mix(col, vec4(uOutlineColor.rgb, max(col.a, around)), clamp(edge, 0.0, 1.0) * uOutlineColor.a);
+    }
+    if (uDissolve > 0.001) {
+        float n = hash(floor(vUV * 512.0));
+        float threshold = uDissolve;
+        if (n < threshold) discard;
+        float edge = smoothstep(threshold, threshold + max(uDissolveEdge, 0.001), n);
+        col.rgb += vec3(0.0, 0.15, 0.35) * (1.0 - edge) * uDissolveEdge * 4.0;
+    }
+    if (uFlash > 0.001) {
+        col.rgb = mix(col.rgb, uFlashColor.rgb, clamp(uFlash, 0.0, 1.0));
+    }
+    gl_FragColor = col;
+}
+"""
+
+    /**
+     * Shape vertex shader. Shape parameters travel per-vertex (aParam: sizeX, sizeY, radius,
+     * border) so hundreds of rounded panels/buttons batch into a single draw call.
+     */
+    const val SHAPE_VS = """
+attribute vec2 aPos;
+attribute vec2 aUV;
+attribute vec4 aColor;
+attribute vec4 aParam;
+uniform mat4 uMVP;
+varying vec2 vUV;
+varying vec4 vColor;
+varying vec4 vParam;
+void main() {
+    vUV = aUV;
+    vColor = aColor;
+    vParam = aParam;
+    gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
+}
+"""
+
+    /** Rounded-rect / circle / capsule SDF shape shader used for UI, tiles, gizmos and particles. */
+    const val SHAPE_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+varying vec4 vParam;
+uniform vec4 uBorderColor;
+uniform float uInnerGlow;
+void main() {
+    vec2 size = max(vParam.xy, vec2(0.001));
+    vec2 half = size * 0.5;
+    vec2 p = (vUV - 0.5) * size;
+    float r = min(vParam.z, min(half.x, half.y));
+    vec2 q = abs(p) - (half - vec2(r));
+    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    float aa = 1.0 - smoothstep(-1.0, 1.0, d);
+    vec4 col = vColor;
+    float borderWidth = vParam.w;
+    if (borderWidth > 0.01) {
+        float border = smoothstep(-borderWidth - 1.0, -borderWidth + 1.0, d);
+        col = mix(uBorderColor, col, border);
+    }
+    if (uInnerGlow > 0.0) {
+        col.rgb += col.rgb * clamp(1.0 - abs(d + 2.0) * 0.25, 0.0, 1.0) * uInnerGlow;
+    }
+    col.a *= aa * vColor.a;
+    if (col.a <= 0.003) discard;
+    gl_FragColor = col;
+}
+"""
+
+    /** Glyph / text shader: alpha from the font atlas, optional outline and shadow tint. */
+    const val TEXT_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform vec4 uOutlineColor;
+uniform float uOutlineWidth;
+void main() {
+    vec4 t = texture2D(uTex, vUV);
+    float a = t.a;
+    vec4 col = vec4(vColor.rgb, vColor.a * a);
+    if (uOutlineWidth > 0.001 && uOutlineColor.a > 0.001) {
+        vec2 texel = vec2(1.0 / 512.0) * uOutlineWidth;
+        float around = 0.0;
+        around = max(around, texture2D(uTex, vUV + vec2(texel.x, 0.0)).a);
+        around = max(around, texture2D(uTex, vUV - vec2(texel.x, 0.0)).a);
+        around = max(around, texture2D(uTex, vUV + vec2(0.0, texel.y)).a);
+        around = max(around, texture2D(uTex, vUV - vec2(0.0, texel.y)).a);
+        float outline = clamp(around - a, 0.0, 1.0);
+        col = mix(col, vec4(uOutlineColor.rgb, uOutlineColor.a * around), outline);
+    }
+    if (col.a <= 0.002) discard;
+    gl_FragColor = col;
+}
+"""
+
+    /** Particles: optional texture, radial soft particle, additive or alpha blending. */
+    const val PARTICLE_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform float uSoftness;
+uniform float uUseTexture;
+void main() {
+    float mask = 1.0;
+    if (uUseTexture > 0.5) {
+        mask = texture2D(uTex, vUV).a;
+    } else {
+        vec2 d = vUV - 0.5;
+        float r = length(d) * 2.0;
+        mask = clamp(1.0 - smoothstep(1.0 - uSoftness, 1.0, r), 0.0, 1.0);
+    }
+    vec4 col = vec4(vColor.rgb, vColor.a * mask);
+    if (col.a <= 0.004) discard;
+    gl_FragColor = col;
+}
+"""
+
+    /** Radial 2D light with falloff, inner core and optional cone. */
+    const val LIGHT_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform vec2 uLightPos;
+uniform float uRadius;
+uniform float uInner;
+uniform float uFalloff;
+uniform float uConeCos;
+uniform vec2 uDirection;
+void main() {
+    vec2 p = (vUV - 0.5) * 2.0;
+    float dist = length(p);
+    if (dist > 1.0) discard;
+    float atten = pow(clamp(1.0 - dist, 0.0, 1.0), uFalloff);
+    float core = uInner > 0.0 ? smoothstep(1.0 - uInner, 1.0, 1.0 - dist) : 0.0;
+    float a = clamp(atten + core * 0.35, 0.0, 1.0);
+    if (uConeCos > -1.5) {
+        vec2 dir = normalize(p + vec2(0.0001));
+        float cd = dot(dir, normalize(uDirection));
+        a *= smoothstep(uConeCos, mix(uConeCos, 1.0, 0.35), cd);
+    }
+    if (a <= 0.002) discard;
+    gl_FragColor = vec4(vColor.rgb, vColor.a * a);
+}
+"""
+
+    /** 9-tap separable gaussian blur (bloom, light softening, UI backdrop blur). */
+    const val BLUR_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform vec2 uStep;
+void main() {
+    vec4 sum = texture2D(uTex, vUV) * 0.2270270270;
+    sum += texture2D(uTex, vUV + uStep * 1.3846153846) * 0.3162162162;
+    sum += texture2D(uTex, vUV - uStep * 1.3846153846) * 0.3162162162;
+    sum += texture2D(uTex, vUV + uStep * 3.2307692308) * 0.0702702703;
+    sum += texture2D(uTex, vUV - uStep * 3.2307692308) * 0.0702702703;
+    gl_FragColor = sum;
+}
+"""
+
+    /**
+     * Final 2D post-processing composite: bloom, vignette, chromatic aberration, scanlines (CRT),
+     * grayscale, colour grading, shockwave and screen distortion.
+     */
+    const val POST_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform sampler2D uBloom;
+uniform float uBloomAmount;
+uniform float uVignette;
+uniform float uChromatic;
+uniform float uScanlines;
+uniform float uGray;
+uniform float uInvert;
+uniform float uShockwave;
+uniform vec2 uShockCenter;
+uniform float uShockTime;
+uniform float uDistortion;
+uniform float uTime;
+uniform vec3 uTint;
+uniform float uExposure;
+uniform float uPixelate;
+uniform vec2 uResolution;
+
+void main() {
+    vec2 uv = vUV;
+    if (uPixelate > 1.0) {
+        uv = floor(uv * uPixelate) / uPixelate;
+    }
+    if (uDistortion > 0.001) {
+        uv.x += sin(uv.y * 28.0 + uTime * 2.0) * 0.004 * uDistortion;
+        uv.y += cos(uv.x * 22.0 - uTime * 1.6) * 0.004 * uDistortion;
+    }
+    if (uShockwave > 0.001) {
+        vec2 d = uv - uShockCenter;
+        float dist = length(d);
+        float wave = (uShockTime * 1.6 - dist) * 6.0;
+        float amp = exp(-abs(wave)) * 0.05 * uShockwave;
+        uv += normalize(d + vec2(0.0001)) * amp;
+    }
+    vec4 col;
+    if (uChromatic > 0.001) {
+        float o = uChromatic * 0.004;
+        col.r = texture2D(uTex, uv + vec2(o, 0.0)).r;
+        col.g = texture2D(uTex, uv).g;
+        col.b = texture2D(uTex, uv - vec2(o, 0.0)).b;
+        col.a = texture2D(uTex, uv).a;
+    } else {
+        col = texture2D(uTex, uv);
+    }
+    if (uBloomAmount > 0.001) {
+        vec4 bloom = texture2D(uBloom, uv);
+        col.rgb += bloom.rgb * uBloomAmount;
+    }
+    if (uScanlines > 0.001) {
+        float s = sin(uv.y * uResolution.y * 0.8) * 0.5 + 0.5;
+        col.rgb *= mix(1.0, 0.82 + 0.18 * s, uScanlines);
+    }
+    if (uGray > 0.001) {
+        float l = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+        col.rgb = mix(col.rgb, vec3(l), uGray);
+    }
+    if (uInvert > 0.001) {
+        col.rgb = mix(col.rgb, vec3(1.0) - col.rgb, uInvert);
+    }
+    if (uVignette > 0.001) {
+        vec2 p = (uv - 0.5) * vec2(uResolution.x / max(uResolution.y, 1.0), 1.0);
+        float v = smoothstep(0.85, 0.25, length(p));
+        col.rgb *= mix(1.0, v, clamp(uVignette, 0.0, 2.0));
+    }
+    col.rgb *= uTint * uExposure;
+    col.a = 1.0;
+    gl_FragColor = col;
+}
+"""
+
+    /** Bright-pass filter used to build the bloom source. */
+    const val BLOOM_PREFILTER_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform float uThreshold;
+uniform float uSoftKnee;
+void main() {
+    vec4 c = texture2D(uTex, vUV);
+    float brightness = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+    float knee = max(uSoftKnee, 0.0001);
+    float soft = clamp(brightness - uThreshold + knee, 0.0, 2.0 * knee);
+    soft = soft * soft / (4.0 * knee);
+    float contribution = max(soft, brightness - uThreshold) / max(brightness, 0.0001);
+    gl_FragColor = vec4(c.rgb * contribution, 1.0);
+}
+"""
+
+    /** Simple full-screen blit (also used by the light map composite). */
+    const val BLIT_FS = """
+precision mediump float;
+varying vec2 vUV;
+varying vec4 vColor;
+uniform sampler2D uTex;
+uniform vec4 uColor;
+void main() {
+    gl_FragColor = texture2D(uTex, vUV) * uColor;
+}
+"""
 }
 
-/** Full-screen post-processing program. */
-class PostProgram(val id: Int) {
-    val aPos = GLES20.glGetAttribLocation(id, "aPos")
-    val uTex = GLES20.glGetUniformLocation(id, "uTex")
-    val uTime = GLES20.glGetUniformLocation(id, "uTime")
-    val uParam = GLES20.glGetUniformLocation(id, "uParam")
-    val uResolution = GLES20.glGetUniformLocation(id, "uResolution")
+/** A compiled program plus the uniform locations the batched renderer uses. */
+class Program(val id: Int, val name: String) {
+    val uMVP = GL.loc(id, "uMVP")
+    val uTex = GL.loc(id, "uTex")
+    val uTexel = GL.loc(id, "uTexel")
+    val uTime = GL.loc(id, "uTime")
+    val uColor = GL.loc(id, "uColor")
+    val uSize = GL.loc(id, "uSize")
+    val aParam = GL.attrib(id, "aParam")
+    val uRadius = GL.loc(id, "uRadius")
+    val uBorderWidth = GL.loc(id, "uBorderWidth")
+    val uBorderColor = GL.loc(id, "uBorderColor")
+    val uInnerGlow = GL.loc(id, "uInnerGlow")
+    val uDissolve = GL.loc(id, "uDissolve")
+    val uDissolveEdge = GL.loc(id, "uDissolveEdge")
+    val uOutline = GL.loc(id, "uOutline")
+    val uOutlineColor = GL.loc(id, "uOutlineColor")
+    val uOutlineWidth = GL.loc(id, "uOutlineWidth")
+    val uGlow = GL.loc(id, "uGlow")
+    val uGray = GL.loc(id, "uGray")
+    val uDistort = GL.loc(id, "uDistort")
+    val uWater = GL.loc(id, "uWater")
+    val uHeat = GL.loc(id, "uHeat")
+    val uFlash = GL.loc(id, "uFlash")
+    val uFlashColor = GL.loc(id, "uFlashColor")
+    val uReplaceFrom = GL.loc(id, "uReplaceFrom")
+    val uReplaceTo = GL.loc(id, "uReplaceTo")
+    val uReplaceAmt = GL.loc(id, "uReplaceAmt")
+    val uSoftness = GL.loc(id, "uSoftness")
+    val uUseTexture = GL.loc(id, "uUseTexture")
+    val uLightPos = GL.loc(id, "uLightPos")
+    val uInner = GL.loc(id, "uInner")
+    val uFalloff = GL.loc(id, "uFalloff")
+    val uConeCos = GL.loc(id, "uConeCos")
+    val uDirection = GL.loc(id, "uDirection")
+    val uStep = GL.loc(id, "uStep")
+    val uBloom = GL.loc(id, "uBloom")
+    val uBloomAmount = GL.loc(id, "uBloomAmount")
+    val uVignette = GL.loc(id, "uVignette")
+    val uChromatic = GL.loc(id, "uChromatic")
+    val uScanlines = GL.loc(id, "uScanlines")
+    val uInvert = GL.loc(id, "uInvert")
+    val uShockwave = GL.loc(id, "uShockwave")
+    val uShockCenter = GL.loc(id, "uShockCenter")
+    val uShockTime = GL.loc(id, "uShockTime")
+    val uDistortion = GL.loc(id, "uDistortion")
+    val uTint = GL.loc(id, "uTint")
+    val uExposure = GL.loc(id, "uExposure")
+    val uPixelate = GL.loc(id, "uPixelate")
+    val uResolution = GL.loc(id, "uResolution")
+    val uThreshold = GL.loc(id, "uThreshold")
+    val uSoftKnee = GL.loc(id, "uSoftKnee")
+
+    val aPos = GL.attrib(id, "aPos")
+    val aUV = GL.attrib(id, "aUV")
+    val aColor = GL.attrib(id, "aColor")
+
+    /** Names of every uniform the editor's shader panel can expose for a custom material. */
+    val materialUniforms: List<String> get() = listOf(
+        "uDissolve", "uDissolveEdge", "uOutline", "uOutlineColor", "uGlow", "uGray",
+        "uDistort", "uWater", "uHeat", "uFlash", "uFlashColor", "uReplaceFrom", "uReplaceTo", "uReplaceAmt"
+    )
+
+    fun use() {
+        GLES20.glUseProgram(id)
+    }
 }
 
 /**
- * Compiles and caches GPU programs. User shaders (`.glsl` assets) define
- *   vec4 effect(vec4 color, vec2 uv)
- * with uTime, uParam, uTex and uResolution available.
+ * Compiles and owns every program the renderer needs. Compilation is lazy but all core programs
+ * are created in [init] so a broken shader surfaces immediately in the editor console.
  */
-class ShaderLibrary(private val project: Project, private val log: (String) -> Unit) {
-    private val sprites = HashMap<String, Pair<Long, SpriteProgram?>>()
-    private val meshes = HashMap<String, Pair<Long, MeshProgram?>>()
-    private val posts = HashMap<String, Pair<Long, PostProgram?>>()
-    lateinit var defaultSprite: SpriteProgram
-    lateinit var defaultMesh: MeshProgram
+class ShaderLibrary {
+
+    var sprite: Program? = null; private set
+    var shape: Program? = null; private set
+    var text: Program? = null; private set
+    var particle: Program? = null; private set
+    var light: Program? = null; private set
+    var blur: Program? = null; private set
+    var post: Program? = null; private set
+    var bloomPrefilter: Program? = null; private set
+    var blit: Program? = null; private set
+
+    /** Custom materials loaded from `.shader` assets (their fragment source is compiled on load). */
+    private val custom = HashMap<String, Program?>()
+
+    var errors = ArrayList<String>(); private set
 
     fun init() {
-        sprites.clear(); meshes.clear(); posts.clear()
-        defaultSprite = SpriteProgram(GL.tryCompile(SPRITE_VS, spriteFs(DEFAULT_EFFECT)).first)
-        defaultMesh = MeshProgram(GL.tryCompile(MESH_VS, meshFs(DEFAULT_EFFECT)).first)
+        errors.clear()
+        sprite = create("sprite", ShaderSources.QUAD_VS, ShaderSources.SPRITE_FS)
+        shape = create("shape", ShaderSources.SHAPE_VS, ShaderSources.SHAPE_FS)
+        text = create("text", ShaderSources.QUAD_VS, ShaderSources.TEXT_FS)
+        particle = create("particle", ShaderSources.QUAD_VS, ShaderSources.PARTICLE_FS)
+        light = create("light", ShaderSources.QUAD_VS, ShaderSources.LIGHT_FS)
+        blur = create("blur", ShaderSources.QUAD_VS, ShaderSources.BLUR_FS)
+        post = create("post", ShaderSources.QUAD_VS, ShaderSources.POST_FS)
+        bloomPrefilter = create("bloomPrefilter", ShaderSources.QUAD_VS, ShaderSources.BLOOM_PREFILTER_FS)
+        blit = create("blit", ShaderSources.QUAD_VS, ShaderSources.BLIT_FS)
     }
 
-    private fun source(name: String): Pair<Long, String>? {
-        val f = project.assetFile(name)
-        if (!f.exists()) return null
-        return f.lastModified() to f.readText()
-    }
-
-    fun sprite(name: String): SpriteProgram? {
-        if (name.isBlank()) return null
-        val (stamp, src) = source(name) ?: return null
-        sprites[name]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(SPRITE_VS, spriteFs(src))
-        if (err != null) log("Shader $name: ${err.trim()}")
-        val p = if (id != 0) SpriteProgram(id) else null
-        sprites[name] = stamp to p
-        return p
-    }
-
-    fun mesh(name: String): MeshProgram? {
-        if (name.isBlank()) return null
-        val (stamp, src) = source(name) ?: return null
-        meshes[name]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(MESH_VS, meshFs(src))
-        if (err != null) log("Shader $name: ${err.trim()}")
-        val p = if (id != 0) MeshProgram(id) else null
-        meshes[name] = stamp to p
-        return p
-    }
-
-    /** Built-in effect index (1..8) or custom asset. */
-    fun post(builtin: Int, custom: String): PostProgram? {
-        val key: String
-        val src: String
-        val stamp: Long
-        if (builtin in 1 until POST_EFFECTS.size) {
-            key = "#$builtin"; src = POST_EFFECTS[builtin]; stamp = 0L
-        } else {
-            val s = source(custom) ?: return null
-            key = custom; src = s.second; stamp = s.first
+    private fun create(name: String, vs: String, fs: String): Program? {
+        val id = GL.compile(vs, fs, name)
+        if (id == 0) {
+            errors.add("Shader '$name' failed to compile")
+            return null
         }
-        posts[key]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(POST_VS, postFs(src))
-        if (err != null) log("Post shader $key: ${err.trim()}")
-        val p = if (id != 0) PostProgram(id) else null
-        posts[key] = stamp to p
-        return p
+        return Program(id, name)
     }
 
-    companion object {
-        const val DEFAULT_EFFECT = "vec4 effect(vec4 color, vec2 uv) { return color; }"
-
-        const val SPRITE_VS = """
-uniform mat4 uMVP;
-uniform vec4 uUV;
-attribute vec2 aPos;
-varying vec2 vP;
-varying vec2 vUV;
-void main() {
-  vP = aPos;
-  vec2 t = aPos + 0.5;
-  vUV = vec2(mix(uUV.x, uUV.z, t.x), mix(uUV.y, uUV.w, t.y));
-  gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
-}
-"""
-
-        fun spriteFs(effect: String) = """
-precision mediump float;
-varying vec2 vP;
-varying vec2 vUV;
-uniform vec4 uColor;
-uniform sampler2D uTex;
-uniform float uUseTex;
-uniform float uShape;
-uniform float uAA;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() {
-  float a = 1.0;
-  if (uShape > 0.5 && uShape < 1.5) {
-    a = clamp((0.5 - length(vP)) * uAA, 0.0, 1.0);
-  } else if (uShape > 1.5 && uShape < 2.5) {
-    float w = (0.5 - vP.y) * 0.5;
-    float e = min(w - abs(vP.x), vP.y + 0.5);
-    a = clamp(e * uAA, 0.0, 1.0);
-  } else if (uShape > 2.5) {
-    float d = length(vP);
-    a = clamp((0.5 - d) * uAA, 0.0, 1.0) * clamp((d - 0.40) * uAA, 0.0, 1.0);
-  }
-  vec4 c = uColor;
-  if (uUseTex > 0.5) c *= texture2D(uTex, vUV);
-  c.a *= a;
-  gl_FragColor = effect(c, vUV);
-}
-"""
-
-        const val MESH_VS = """
-uniform mat4 uMVP;
-uniform mat4 uModel;
-uniform mat4 uNormalMat;
-attribute vec3 aPos;
-attribute vec3 aNormal;
-attribute vec2 aUV;
-varying vec3 vWorld;
-varying vec3 vNormal;
-varying vec2 vUV;
-void main() {
-  vWorld = (uModel * vec4(aPos, 1.0)).xyz;
-  vNormal = (uNormalMat * vec4(aNormal, 0.0)).xyz;
-  vUV = aUV;
-  gl_Position = uMVP * vec4(aPos, 1.0);
-}
-"""
-
-        fun meshFs(effect: String) = """
-precision mediump float;
-varying vec3 vWorld;
-varying vec3 vNormal;
-varying vec2 vUV;
-uniform vec4 uColor;
-uniform sampler2D uTex;
-uniform float uUseTex;
-uniform float uTiling;
-uniform vec3 uCamPos;
-uniform vec3 uAmbient;
-uniform vec3 uDirDir;
-uniform vec3 uDirColor;
-uniform vec4 uPointPos[4];
-uniform vec3 uPointColor[4];
-uniform float uSpec;
-uniform float uShine;
-uniform float uEmission;
-uniform float uUnlit;
-uniform vec3 uFogColor;
-uniform vec3 uFog;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() {
-  vec4 base = uColor;
-  vec2 uv = vUV * uTiling;
-  if (uUseTex > 0.5) base *= texture2D(uTex, uv);
-  vec3 col = base.rgb;
-  if (uUnlit < 0.5) {
-    vec3 n = normalize(vNormal);
-    vec3 v = normalize(uCamPos - vWorld);
-    vec3 l = normalize(-uDirDir);
-    float diff = max(dot(n, l), 0.0);
-    vec3 h = normalize(l + v);
-    float spec = pow(max(dot(n, h), 0.0), uShine) * uSpec;
-    vec3 light = uAmbient + uDirColor * diff;
-    vec3 specular = uDirColor * spec * step(0.0001, diff);
-    for (int i = 0; i < 4; i++) {
-      vec3 d = uPointPos[i].xyz - vWorld;
-      float dist = length(d);
-      float att = clamp(1.0 - dist / max(uPointPos[i].w, 0.001), 0.0, 1.0);
-      att *= att;
-      vec3 pl = d / max(dist, 0.0001);
-      float pd = max(dot(n, pl), 0.0);
-      light += uPointColor[i] * pd * att;
-      specular += uPointColor[i] * pow(max(dot(n, normalize(pl + v)), 0.0), uShine) * uSpec * att * step(0.0001, pd);
+    /**
+     * Compiles a user shader (the 2D shader editor) or returns a cached program.
+     * Fragment source must declare `varying vec2 vUV; varying vec4 vColor;` and write gl_FragColor.
+     */
+    fun custom(name: String, fragmentSource: String): Program? {
+        custom[name]?.let { return it }
+        val id = GL.compile(ShaderSources.QUAD_VS, fragmentSource, "custom:$name")
+        val program = if (id == 0) null else Program(id, "custom:$name")
+        custom[name] = program
+        return program
     }
-    col = col * light + specular;
-  }
-  col += base.rgb * uEmission;
-  if (uFog.z > 0.5) {
-    float f = clamp((length(uCamPos - vWorld) - uFog.x) / max(uFog.y - uFog.x, 0.001), 0.0, 1.0);
-    col = mix(col, uFogColor, f);
-  }
-  gl_FragColor = effect(vec4(col, base.a), uv);
-}
-"""
 
-        const val POST_VS = """
-attribute vec2 aPos;
-varying vec2 vUV;
-void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
-"""
+    fun invalidateCustom(name: String) {
+        custom.remove(name)
+    }
 
-        fun postFs(effect: String) = """
-precision mediump float;
-varying vec2 vUV;
-uniform sampler2D uTex;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() { gl_FragColor = effect(texture2D(uTex, vUV), vUV); }
-"""
+    fun hasCustom(name: String) = custom.containsKey(name)
 
-        /** Index matches ComponentRegistry.POST_FX. uParam = intensity. */
-        val POST_EFFECTS = listOf(
-            DEFAULT_EFFECT,
-            // Grayscale
-            "vec4 effect(vec4 c, vec2 uv) { float g = dot(c.rgb, vec3(0.299, 0.587, 0.114)); return vec4(mix(c.rgb, vec3(g), clamp(uParam, 0.0, 1.0)), 1.0); }",
-            // Sepia
-            "vec4 effect(vec4 c, vec2 uv) { vec3 s = vec3(dot(c.rgb, vec3(0.393, 0.769, 0.189)), dot(c.rgb, vec3(0.349, 0.686, 0.168)), dot(c.rgb, vec3(0.272, 0.534, 0.131))); return vec4(mix(c.rgb, s, clamp(uParam, 0.0, 1.0)), 1.0); }",
-            // Vignette
-            "vec4 effect(vec4 c, vec2 uv) { float d = distance(uv, vec2(0.5)); float v = smoothstep(0.8, 0.25, d * (0.6 + uParam * 0.6)); return vec4(c.rgb * v, 1.0); }",
-            // CRT
-            """vec4 effect(vec4 c, vec2 uv) {
-  vec2 q = uv - 0.5; q *= 1.0 + dot(q, q) * 0.25 * uParam; vec2 w = q + 0.5;
-  if (w.x < 0.0 || w.x > 1.0 || w.y < 0.0 || w.y > 1.0) return vec4(0.0, 0.0, 0.0, 1.0);
-  vec3 col = texture2D(uTex, w).rgb;
-  float scan = 0.85 + 0.15 * sin(w.y * uResolution.y * 3.14159);
-  float vig = smoothstep(0.75, 0.3, length(q));
-  return vec4(col * scan * vig * 1.15, 1.0);
-}""",
-            // Pixelate
-            "vec4 effect(vec4 c, vec2 uv) { float px = max(2.0, 4.0 * uParam) ; vec2 g = uResolution / px; vec2 p = (floor(uv * g) + 0.5) / g; return vec4(texture2D(uTex, p).rgb, 1.0); }",
-            // Bloom
-            """vec4 effect(vec4 c, vec2 uv) {
-  vec2 px = 2.5 / uResolution; vec3 acc = vec3(0.0);
-  for (int x = -2; x <= 2; x++) for (int y = -2; y <= 2; y++) {
-    vec3 s = texture2D(uTex, uv + vec2(float(x), float(y)) * px).rgb;
-    acc += max(s - 0.6, 0.0);
-  }
-  return vec4(c.rgb + acc / 25.0 * 3.0 * uParam, 1.0);
-}""",
-            // Invert
-            "vec4 effect(vec4 c, vec2 uv) { return vec4(mix(c.rgb, 1.0 - c.rgb, clamp(uParam, 0.0, 1.0)), 1.0); }",
-            // Chromatic aberration
-            "vec4 effect(vec4 c, vec2 uv) { vec2 o = (uv - 0.5) * 0.012 * uParam; return vec4(texture2D(uTex, uv + o).r, c.g, texture2D(uTex, uv - o).b, 1.0); }",
-        )
+    /** Releases every compiled program (called when the GL context is lost). */
+    fun release() {
+        for (p in listOf(sprite, shape, text, particle, light, blur, post, bloomPrefilter, blit)) {
+            p?.let { GLES20.glDeleteProgram(it.id) }
+        }
+        for (p in custom.values) p?.let { GLES20.glDeleteProgram(it.id) }
+        custom.clear()
+        sprite = null; shape = null; text = null; particle = null; light = null
+        blur = null; post = null; bloomPrefilter = null; blit = null
     }
 }

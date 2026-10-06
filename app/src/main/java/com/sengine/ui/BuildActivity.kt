@@ -1,5 +1,6 @@
 package com.sengine.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -18,9 +19,6 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.FileProvider
 import com.sengine.export.ApkBuilder
 import com.sengine.export.GameBuildConfig
 import com.sengine.export.SigningKeys
@@ -31,7 +29,7 @@ import java.io.File
 import kotlin.concurrent.thread
 
 /** Game build settings and APK export. */
-class BuildActivity : AppCompatActivity() {
+class BuildActivity : Activity() {
 
     private lateinit var project: Project
     private lateinit var nameField: EditText
@@ -55,23 +53,43 @@ class BuildActivity : AppCompatActivity() {
 
     private val settingsFile get() = File(project.dir, ".build_settings.json")
 
-    private val pickKeystore = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) try {
-            val f = File(filesDir, "keystores/user_keystore" + (if (uri.toString().lowercase().endsWith(".bks")) ".bks" else ".p12"))
-            f.parentFile?.mkdirs()
-            contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { i.copyTo(it) } }
-            keystoreFile = f
-            keystoreBtn.text = "Keystore: ${f.name} ✓"
-            keyGroup.check(2)
-        } catch (e: Exception) { toast("Can't read keystore: ${e.message}") }
+    private fun pickKeystore() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_KEYSTORE
+        )
     }
 
-    private val saveApk = registerForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")) { uri ->
-        val apk = lastApk
-        if (uri != null && apk != null) try {
-            contentResolver.openOutputStream(uri)!!.use { o -> apk.inputStream().use { it.copyTo(o) } }
-            toast("APK saved")
-        } catch (e: Exception) { toast("Save failed: ${e.message}") }
+    private fun saveApk(name: String) {
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/vnd.android.package-archive").putExtra(Intent.EXTRA_TITLE, name), REQ_SAVE_APK
+        )
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            REQ_KEYSTORE -> try {
+                val f = File(filesDir, "keystores/user_keystore" + (if (uri.toString().lowercase().endsWith(".bks")) ".bks" else ".p12"))
+                f.parentFile?.mkdirs()
+                contentResolver.openInputStream(uri)!!.use { i -> f.outputStream().use { i.copyTo(it) } }
+                keystoreFile = f
+                keystoreBtn.text = "Keystore: ${f.name} ✓"
+                keyGroup.check(2)
+            } catch (e: Exception) { toast("Can't read keystore: ${e.message}") }
+            REQ_SAVE_APK -> {
+                val apk = lastApk
+                if (apk != null) try {
+                    contentResolver.openOutputStream(uri)!!.use { o -> apk.inputStream().use { it.copyTo(o) } }
+                    toast("APK saved")
+                } catch (e: Exception) { toast("Save failed: ${e.message}") }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,7 +132,7 @@ class BuildActivity : AppCompatActivity() {
         keyGroup.addView(RadioButton(this).apply { id = 2; text = "My keystore file (.p12 / .pfx / .bks)"; setTextColor(C.TEXT) })
         keyGroup.check(1)
         body.addView(keyGroup)
-        keystoreBtn = button("Choose keystore…") { pickKeystore.launch(arrayOf("*/*")) }.apply { textSize = 12f }
+        keystoreBtn = button("Choose keystore…") { pickKeystore() }.apply { textSize = 12f }
         body.addView(keystoreBtn, lp(WRAP, WRAP).margins(dp(30), dp(4), 0, dp(4)))
         passField = field("").apply { hint = "Keystore password"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
         row("Password", passField)
@@ -134,7 +152,7 @@ class BuildActivity : AppCompatActivity() {
         resultRow = hbox().apply { visibility = android.view.View.GONE }
         resultRow.addView(button("📲 Install", C.GREEN, 0xFFFFFFFF.toInt()) { install() }, lp(0, WRAP, 1f).margins(0, 0, dp(4), 0))
         resultRow.addView(button("↗ Share") { share() }, lp(0, WRAP, 1f).margins(dp(4), 0, dp(4), 0))
-        resultRow.addView(button("💾 Save…") { lastApk?.let { saveApk.launch(it.name) } }, lp(0, WRAP, 1f).margins(dp(4), 0, 0, 0))
+        resultRow.addView(button("💾 Save…") { lastApk?.let { saveApk(it.name) } }, lp(0, WRAP, 1f).margins(dp(4), 0, 0, 0))
         body.addView(resultRow, lp(MATCH, WRAP).margins(0, dp(10), 0, 0))
         logText = label("", 11f, C.DIM).apply { typeface = android.graphics.Typeface.MONOSPACE }
         body.addView(logText, lp(MATCH, WRAP).margins(0, dp(10), 0, 0))
@@ -204,7 +222,7 @@ class BuildActivity : AppCompatActivity() {
     /** Debug automation: write the APK to the app's external files dir. */
     private fun customOutput(): File? = intent.getStringExtra("output")?.let { File(getExternalFilesDir(null), it) }
 
-    private fun uriFor(f: File): Uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+    private fun uriFor(f: File): Uri? = ShareProvider.uriFor(this, f)
 
     private fun install() {
         val apk = lastApk ?: return
@@ -213,19 +231,26 @@ class BuildActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
             return
         }
+        val uri = uriFor(apk) ?: return toast("Can't share the APK")
         try {
-            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uriFor(apk), "application/vnd.android.package-archive")
+            startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: Exception) { toast("Can't open installer: ${e.message}") }
     }
 
     private fun share() {
         val apk = lastApk ?: return
+        val uri = uriFor(apk) ?: return toast("Can't share the APK")
         try {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/vnd.android.package-archive")
-                .putExtra(Intent.EXTRA_STREAM, uriFor(apk)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share game APK"))
+                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share game APK"))
         } catch (e: Exception) { toast("Share failed: ${e.message}") }
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    companion object {
+        private const val REQ_KEYSTORE = 51
+        private const val REQ_SAVE_APK = 52
+    }
 }

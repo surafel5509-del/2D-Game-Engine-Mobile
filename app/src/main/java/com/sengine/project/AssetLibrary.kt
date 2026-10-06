@@ -9,6 +9,7 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import com.sengine.engine.anim.AnimationClip
+import com.sengine.engine.anim.LoopMode
 import com.sengine.engine.blueprint.Blueprint
 import java.io.ByteArrayOutputStream
 import kotlin.math.PI
@@ -36,7 +37,7 @@ object AssetLibrary {
         fun installed(p: Project) = files.all { p.assetFile(it).exists() }
     }
 
-    val categories = listOf("All", "Packs", "Textures", "Sprites", "Sprite Sheets", "Sounds", "Shaders", "Scripts", "Blueprints", "3D Models")
+    val categories = listOf("All", "Packs", "Textures", "Sprites", "Sprite Sheets", "Sounds", "Shaders", "Scripts", "Blueprints")
 
     private fun png(p: Project, name: String, b: Bitmap) {
         p.assetsDir.mkdirs()
@@ -51,7 +52,12 @@ object AssetLibrary {
 
     private fun sheet(title: String, file: String, anim: String, desc: String, cols: Int, fps: Float, loop: Boolean, gen: () -> Bitmap) =
         Item(title, "Sprite Sheets", desc, listOf(file, anim), preview = gen) { p ->
-            p.writeAsset(anim, AnimationClip(file, cols, 1, (0 until cols).toMutableList(), fps, loop).toJson().toString(2))
+            val clip = AnimationClip(anim.removeSuffix(".anim"))
+            clip.texture = file
+            clip.fps = fps
+            clip.loop = if (loop) LoopMode.LOOP else LoopMode.ONCE
+            clip.buildGrid(cols, 1)
+            p.writeAsset(anim, clip.toJson().toString(2))
             png(p, file, gen())
         }
 
@@ -119,13 +125,11 @@ object AssetLibrary {
         list += text("Collectible (Blueprint)", "Blueprints", "CollectibleBP.bp", "Adds score, plays a sound and disappears on trigger", "BP") { bpCollectible() }
         list += text("Platformer Player (Blueprint)", "Blueprints", "PlatformerBP.bp", "Run & jump controller with animation", "BP") { bpPlatformer() }
         list += text("Timed Spawner (Blueprint)", "Blueprints", "SpawnerBP.bp", "Spawns a template every 2 seconds", "BP") { bpSpawner() }
-        // ---------------------------------------------------------------- models
-        list += text("Low-Poly Tree", "3D Models", "Tree.obj", "Trunk + foliage, OBJ", "3D") { Models.tree() }
-        list += text("Rock", "3D Models", "Rock.obj", "Irregular boulder, OBJ", "3D") { Models.rock() }
-        list += text("House", "3D Models", "House.obj", "Box house with roof, OBJ", "3D") { Models.house() }
-        list += text("Crystal", "3D Models", "Crystal.obj", "Faceted gem, OBJ", "3D") { Models.crystal() }
-        list += text("Barrel", "3D Models", "Barrel.obj", "Bulged barrel, OBJ", "3D") { Models.barrel() }
-        list += text("Arrow", "3D Models", "Arrow.obj", "Direction arrow, OBJ", "3D") { Models.arrow() }
+        // ---------------------------------------------------------------- 2D extras
+        list += tex("Rolling Wheel", "Wheel.png", "Vehicle wheel with rim and spokes, 32×32", "Sprites") { wheel2d() }
+        list += tex("Smoke Puff", "Smoke.png", "Soft smoke particle, 64×64", "Sprites") { softDot(0xFFB0BEC5.toInt()) }
+        list += tex("Shockwave Ring", "Shockwave.png", "Expanding impact ring, 128×128", "Sprites") { ring() }
+        list += tex("Rain Streak", "Rain.png", "Rain / speed-line particle, 8×64", "Sprites") { streak() }
         // ---------------------------------------------------------------- packs
         fun pack(title: String, desc: String, names: List<String>) {
             val parts = names.mapNotNull { n -> list.firstOrNull { it.title == n } }
@@ -135,8 +139,10 @@ object AssetLibrary {
             listOf("Hero", "Hero Run (4 frames)", "Coin Spin (6 frames)", "Slime Bounce (4 frames)", "Grass Tile", "Brick Wall", "Sky Gradient", "Mountains", "Coin Pickup", "Jump", "Hit", "PlayerPlatformer", "EnemyPatrol", "Collectible"))
         pack("Space Shooter Pack", "Ship, asteroid, laser, explosion, night sky and sounds",
             listOf("Spaceship", "Asteroid", "Laser Bolt", "Explosion (8 frames)", "Night Sky", "Laser", "Explosion", "Bullet", "Spawner"))
-        pack("3D Starter Pack", "Models, tileable textures, a 3D controller and a toon shader",
-            listOf("Low-Poly Tree", "Rock", "House", "Crystal", "Checker", "Grass Tile", "Stone", "Player3D", "Rotator", "Toon"))
+        pack("Hill Climb Pack", "Vehicle, wheels, terrain textures, smoke and a driver script",
+            listOf("Rolling Wheel", "Dirt", "Stone", "Metal Plate", "Smoke Puff", "Explosion (8 frames)", "VehicleDriver", "FollowTarget", "Explosion"))
+        pack("Puzzle Pack", "Gems, keys, hearts, UI button and pickup scripts",
+            listOf("Gem", "Key", "Heart", "UI Button", "Coin Pickup", "Collectible", "Rotator", "Win Jingle"))
         pack("VFX Pack", "Particles, fire, shaders and power-up sound",
             listOf("Soft Particle", "Spark", "Fire (6 frames)", "Dissolve", "Hit Flash", "Rainbow", "Hologram", "Power Up"))
         return list
@@ -587,6 +593,51 @@ object AssetLibrary {
 
     // ==================================================================== sounds
 
+    private fun wheel2d(): Bitmap {
+        val b = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        c.drawCircle(16f, 16f, 15f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF263238.toInt() })
+        c.drawCircle(16f, 16f, 12f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF11151A.toInt(); style = Paint.Style.STROKE; strokeWidth = 5f
+        })
+        c.drawCircle(16f, 16f, 7f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFB0BEC5.toInt() })
+        val spokes = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF78909C.toInt(); strokeWidth = 3f }
+        for (i in 0 until 4) {
+            val a = i * PI / 4
+            val dx = (cos(a) * 6).toFloat(); val dy = (sin(a) * 6).toFloat()
+            c.drawLine(16f - dx, 16f - dy, 16f + dx, 16f + dy, spokes)
+        }
+        c.drawCircle(16f, 16f, 2.5f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFECEFF1.toInt() })
+        return b
+    }
+
+    private fun ring(): Bitmap {
+        val b = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(
+                64f, 64f, 62f,
+                intArrayOf(0x00FFFFFF, 0x66FFD54F, 0xFFFFF3C4.toInt(), 0x00FFB300),
+                floatArrayOf(0f, 0.55f, 0.75f, 1f), Shader.TileMode.CLAMP
+            )
+        }
+        c.drawCircle(64f, 64f, 62f, glow)
+        return b
+    }
+
+    private fun streak(): Bitmap {
+        val b = Bitmap.createBitmap(8, 64, Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, 0f, 0f, 64f,
+                intArrayOf(0x00BFE3FF, 0x99CFE9FF.toInt(), 0x00BFE3FF), null, Shader.TileMode.CLAMP
+            )
+        }
+        c.drawRect(2f, 0f, 6f, 64f, p)
+        return b
+    }
+
     object Sfx {
         private const val RATE = 22050
 
@@ -722,12 +773,20 @@ vec4 effect(vec4 color, vec2 uv) {
     return color;
 }
 """.trimStart()),
-            Triple("Toon.glsl", "Cel shading for 3D meshes", """
-// Toon / cel shading. Use on a MeshRenderer. uParam = bands (default 1 -> 4 bands)
+            Triple("Grayscale.glsl", "Desaturate a sprite (uParam = amount)", """
+// Grayscale. uParam 0 = full colour, 1 = black and white
 vec4 effect(vec4 color, vec2 uv) {
-    float bands = 4.0 * max(uParam, 0.25);
-    vec3 c = floor(color.rgb * bands + 0.5) / bands;
-    return vec4(c, color.a);
+    float l = dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    return vec4(mix(color.rgb, vec3(l), clamp(uParam, 0.0, 1.0)), color.a);
+}
+""".trimStart()),
+            Triple("ColorReplace.glsl", "Swap one colour for another (uParam = amount)", """
+// Colour replacement. uParam = amount
+vec4 effect(vec4 color, vec2 uv) {
+    vec3 from = vec3(0.18, 0.48, 0.84);
+    vec3 to = vec3(0.84, 0.29, 0.18);
+    float m = smoothstep(0.25, 0.05, distance(color.rgb, from)) * clamp(uParam, 0.0, 1.0);
+    return vec4(mix(color.rgb, to, m), color.a);
 }
 """.trimStart()),
             Triple("Pulse.glsl", "Pulsing glow", """
@@ -737,7 +796,7 @@ vec4 effect(vec4 color, vec2 uv) {
     return vec4(color.rgb * p, color.a);
 }
 """.trimStart()),
-            Triple("WaterRipple.glsl", "Scrolling water ripples (works on meshes and sprites)", """
+            Triple("WaterRipple.glsl", "Scrolling water ripples for sprites and tilemaps", """
 // Water ripples
 vec4 effect(vec4 color, vec2 uv) {
     float r = sin(uv.x * 30.0 + uTime * 2.0) * sin(uv.y * 30.0 + uTime * 1.7);
@@ -782,16 +841,17 @@ function update(dt) {
         self.rotation = Math.atan2(input.axisY, input.axisX) * 180 / Math.PI - 90;
 }
 """.trimStart()),
-            Triple("Player3D.js", "3D character: joystick moves on XZ, A jumps (needs Rigidbody3D)", """
-// 3D character controller. Params: speed=6, jump=7
-var speed = 6, jump = 7;
+            Triple("VehicleDriver.js", "Hill Climb driving: throttle, air control and flip recovery (needs Vehicle2D)", """
+// Vehicle driver. Params: airControl=55
+var airControl = 55;
 function update(dt) {
-    self.vx = input.axisX * speed;
-    self.vz = -input.axisY * speed;
-    if (input.axisX != 0 || input.axisY != 0)
-        self.rotY = Math.atan2(input.axisX, input.axisY) * 180 / Math.PI;
-    if (input.aDown && self.grounded) self.vy = jump;
-    if (self.y < -30) scene.reload();
+    self.throttle = input.axisX;
+    if (input.aDown) self.throttle = 1;
+    if (input.b) self.throttle = -1;
+    if (self.airborne) self.addTorque(-input.axisX * airControl * dt * 60);
+    var label = scene.find("SpeedLabel");
+    if (label) label.setText(Math.round(self.vehicleSpeedKmh) + " km/h");
+    if (self.vehicleSpeedKmh > 45) camera.shake(0.05);
 }
 """.trimStart()),
             Triple("EnemyPatrol.js", "Walks back and forth; hurts the Player", """
@@ -802,7 +862,7 @@ function update(dt) {
     self.x += dir * speed * dt;
     if (self.x > startX + distance) dir = -1;
     if (self.x < startX - distance) dir = 1;
-    self.flipX = dir < 0;
+    self.setFlipX(dir < 0);
 }
 function onCollision(other) {
     if (other.tag == "Player") { scene.shake(0.6); audio.play("hit.wav"); other.send("hurt", 1); }
@@ -849,10 +909,10 @@ function update(dt) {
     self.y = lerp(self.y, t.worldY, clamp(smooth * dt, 0, 1));
 }
 """.trimStart()),
-            Triple("Rotator.js", "Spins on X/Y/Z (works in 2D and 3D)", """
-// Rotator. Params: x=0, y=90, z=0
-var x = 0, y = 90, z = 0;
-function update(dt) { self.rotate(x * dt, y * dt, z * dt); }
+            Triple("Rotator.js", "Spins around Z at a constant speed", """
+// Rotator. Params: speed=90 (degrees/second)
+var speed = 90;
+function update(dt) { self.rotate(speed * dt); }
 """.trimStart()),
             Triple("Health.js", "Hit points with flash, death burst and restart", """
 // Health. Params: hp=3
@@ -863,96 +923,18 @@ function hurt(amount) {
 }
 function update(dt) { if (flash > 0) { flash = Math.max(0, flash - dt * 4); self.setShaderParam(flash); } }
 """.trimStart()),
-            Triple("OrbitCamera3D.js", "Put on a Camera3D: drag to orbit around a target", """
-// Orbit camera. Params: target=Player, distance=10, height=4
-var target = "Player", distance = 10, height = 4, angle = 0, t = null;
-function start() { t = scene.find(target); }
-function update(dt) {
-    if (input.touching) angle += input.axisX * 90 * dt;
-    angle += 10 * dt;
-    var cx = t ? t.worldX : 0, cz = t ? t.worldZ : 0, cy = t ? t.worldY : 0;
-    var a = angle * Math.PI / 180;
-    self.setPosition(cx + Math.sin(a) * distance, cy + height, cz + Math.cos(a) * distance);
-    self.rotY = angle;
-    self.rotX = -Math.atan2(height, distance) * 180 / Math.PI;
+            Triple("Checkpoint.js", "Saves the respawn point when the player reaches it", """
+// Checkpoint. Params: id=1
+var id = 1, used = false;
+function onTrigger(other) {
+    if (used || other.tag != "Player") return;
+    used = true;
+    scene.find("Checkpoints").send("save", id);
+    audio.play("powerup.wav");
+    self.alpha = 0.5;
 }
 """.trimStart()),
         )
     }
 
-    // ==================================================================== OBJ models
-
-    object Models {
-        private class Obj {
-            val sb = StringBuilder("# S Engine generated model\n")
-            var n = 0
-            fun v(x: Double, y: Double, z: Double): Int { sb.append(String.format(java.util.Locale.US, "v %.4f %.4f %.4f\n", x, y, z)); return ++n }
-            fun f(vararg i: Int) { sb.append("f ").append(i.joinToString(" ")).append('\n') }
-            /** Ring-based surface of revolution: list of (y, radius). */
-            fun lathe(profile: List<Pair<Double, Double>>, seg: Int, ox: Double = 0.0, oz: Double = 0.0, cap: Boolean = true) {
-                val rings = profile.map { (y, r) -> (0 until seg).map { i -> val a = i * 2 * PI / seg; v(ox + cos(a) * r, y, oz + sin(a) * r) } }
-                for (k in 0 until rings.size - 1) for (i in 0 until seg) {
-                    val a = rings[k][i]; val b = rings[k][(i + 1) % seg]; val c = rings[k + 1][(i + 1) % seg]; val d = rings[k + 1][i]
-                    f(a, d, c, b)
-                }
-                if (cap) {
-                    val bottom = v(ox, profile.first().first, oz); val top = v(ox, profile.last().first, oz)
-                    for (i in 0 until seg) { f(bottom, rings.first()[i], rings.first()[(i + 1) % seg]); f(top, rings.last()[(i + 1) % seg], rings.last()[i]) }
-                }
-            }
-            fun box(x0: Double, y0: Double, z0: Double, x1: Double, y1: Double, z1: Double) {
-                val p = Array(8) { i -> v(if (i and 1 == 0) x0 else x1, if (i and 2 == 0) y0 else y1, if (i and 4 == 0) z0 else z1) }
-                f(p[0], p[2], p[3], p[1]); f(p[4], p[5], p[7], p[6]); f(p[0], p[1], p[5], p[4])
-                f(p[2], p[6], p[7], p[3]); f(p[0], p[4], p[6], p[2]); f(p[1], p[3], p[7], p[5])
-            }
-        }
-
-        fun tree(): String = Obj().apply {
-            lathe(listOf(0.0 to 0.12, 0.8 to 0.1), 8)
-            lathe(listOf(0.6 to 0.7, 1.4 to 0.35, 1.45 to 0.0), 10)
-            lathe(listOf(1.2 to 0.5, 2.0 to 0.2, 2.05 to 0.0), 10)
-        }.sb.toString()
-
-        fun rock(): String = Obj().apply {
-            val r = Random(5)
-            val seg = 10; val rings = 7
-            val grid = (0..rings).map { j ->
-                (0 until seg).map { i ->
-                    val th = j * PI / rings; val ph = i * 2 * PI / seg
-                    val rad = if (j == 0 || j == rings) 1.0 else 0.8 + r.nextDouble() * 0.4
-                    v(sin(th) * cos(ph) * rad, cos(th) * rad * 0.7, sin(th) * sin(ph) * rad)
-                }
-            }
-            for (j in 0 until rings) for (i in 0 until seg) f(grid[j][i], grid[j][(i + 1) % seg], grid[j + 1][(i + 1) % seg], grid[j + 1][i])
-        }.sb.toString()
-
-        fun house(): String = Obj().apply {
-            box(-1.0, 0.0, -0.8, 1.0, 1.2, 0.8)
-            val a = v(-1.1, 1.2, -0.9); val b = v(1.1, 1.2, -0.9); val c = v(1.1, 1.2, 0.9); val d = v(-1.1, 1.2, 0.9)
-            val e = v(-1.1, 2.0, 0.0); val g = v(1.1, 2.0, 0.0)
-            f(a, e, g, b); f(d, c, g, e); f(a, d, e); f(b, g, c); f(a, b, c, d)
-            box(-0.25, 0.0, 0.8, 0.25, 0.7, 0.85)
-            box(0.6, 1.4, -0.3, 0.8, 2.0, -0.1)
-        }.sb.toString()
-
-        fun crystal(): String = Obj().apply {
-            val seg = 6
-            val top = v(0.0, 1.6, 0.0); val bottom = v(0.0, -0.4, 0.0)
-            val ring = (0 until seg).map { i -> val a = i * 2 * PI / seg; v(cos(a) * 0.45, 0.4, sin(a) * 0.45) }
-            for (i in 0 until seg) { f(top, ring[(i + 1) % seg], ring[i]); f(bottom, ring[i], ring[(i + 1) % seg]) }
-        }.sb.toString()
-
-        fun barrel(): String = Obj().apply {
-            lathe((0..8).map { k -> val y = k / 8.0 * 1.2; y to (0.42 + sin(k / 8.0 * PI) * 0.1) }, 16)
-        }.sb.toString()
-
-        fun arrow(): String = Obj().apply {
-            box(-0.08, -0.08, 0.0, 0.08, 0.08, 1.0)
-            val tip = v(0.0, 0.0, -0.5)
-            val ring = (0 until 8).map { i -> val a = i * 2 * PI / 8; v(cos(a) * 0.25, sin(a) * 0.25, 0.0) }
-            for (i in 0 until 8) f(tip, ring[i], ring[(i + 1) % 8])
-            val c = v(0.0, 0.0, 0.0)
-            for (i in 0 until 8) f(c, ring[(i + 1) % 8], ring[i])
-        }.sb.toString()
-    }
 }

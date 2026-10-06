@@ -1,79 +1,141 @@
 package com.sengine.ui
 
+import android.app.AlertDialog
 import android.content.Context
-import android.text.Editable
-import android.text.TextWatcher
+import android.graphics.Color
+import android.view.Gravity
 import android.view.View
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.SeekBar
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.sengine.engine.core.Component
+import com.sengine.engine.math.Colors
 
-object ColorPickerDialog {
-    private val PALETTE = longArrayOf(
-        0xFFFFFFFF, 0xFF000000, 0xFF9E9E9E, 0xFFEF5350, 0xFFFF7043, 0xFFFFCA28, 0xFFFFEE58,
-        0xFF66BB6A, 0xFF26A69A, 0xFF42A5F5, 0xFF5C6BC0, 0xFFAB47BC, 0xFFEC407A, 0xFF8D6E63
-    )
+/**
+ * HSV color picker with alpha, a live preview swatch and a hex field.
+ * Bound to `Prop.Color` in the inspector and to theme editing in project settings.
+ */
+class ColorPickerDialog(
+    private val context: Context,
+    initial: Int,
+    private val onPick: (Int) -> Unit
+) {
 
-    fun show(ctx: Context, initial: Int, onPick: (Int) -> Unit) {
-        var color = initial
-        val box = ctx.vbox().apply { setPadding(ctx.dp(20), ctx.dp(10), ctx.dp(20), 0) }
-        val preview = View(ctx)
-        box.addView(preview, lp(MATCH, ctx.dp(44)).margins(0, 0, 0, ctx.dp(10)))
-        val hex = ctx.field("")
-        val bars = ArrayList<SeekBar>()
-        var updating = false
+    private var alpha = Color.alpha(initial) / 255f
+    private var hue = 0f
+    private var sat = 0f
+    private var value = 0f
+    private var hex: EditText? = null
+    private var preview: View? = null
 
-        fun refresh(fromHex: Boolean = false) {
-            updating = true
-            preview.background = round(color, ctx.dp(8).toFloat(), ctx.dp(1), 0xFF555555.toInt())
-            val comps = intArrayOf((color shr 16) and 255, (color shr 8) and 255, color and 255, (color ushr 24) and 255)
-            bars.forEachIndexed { i, b -> b.progress = comps[i] }
-            if (!fromHex) hex.setText(String.format("#%08X", color))
-            updating = false
+    init {
+        val hsv = FloatArray(3)
+        Color.colorToHSV(initial, hsv)
+        hue = hsv[0]; sat = hsv[1]; value = hsv[2]
+    }
+
+    private fun current(): Int = Color.HSVToColor((alpha * 255f).toInt().coerceIn(0, 255), floatArrayOf(hue, sat, value))
+
+    fun show() {
+        val box = context.vbox().apply {
+            setPadding(context.dp(16), context.dp(12), context.dp(16), context.dp(4))
+        }
+        preview = View(context).apply {
+            background = round(current(), context.dp(8).toFloat(), 1, C.BORDER)
+            layoutParams = lp(MATCH, context.dp(44))
+        }
+        box.addView(preview)
+
+        var hexField: EditText? = null
+        fun refresh() {
+            val c = current()
+            (preview?.background as? android.graphics.drawable.GradientDrawable)?.setColor(c)
+            hexField?.setText(Colors.toHex(c))
         }
 
-        val names = listOf("R", "G", "B", "A")
-        for (i in 0 until 4) {
-            val row = ctx.hbox()
-            row.addView(ctx.label(names[i], 13f, C.DIM), lp(ctx.dp(20), WRAP))
-            val sb = SeekBar(ctx).apply { max = 255 }
-            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                    if (updating || !fromUser) return
-                    val shift = when (i) { 0 -> 16; 1 -> 8; 2 -> 0; else -> 24 }
-                    color = (color and (0xFF shl shift).inv()) or (p shl shift)
+        fun sliderRow(name: String, initialProgress: Int, onChange: (Int) -> Unit): LinearLayout {
+            val bar = SeekBar(context).apply {
+                max = 1000
+                progress = initialProgress
+                progressTintList = android.content.res.ColorStateList.valueOf(C.ACCENT)
+                thumbTintList = android.content.res.ColorStateList.valueOf(C.ACCENT)
+            }
+            bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                    onChange(p)
                     refresh()
                 }
-                override fun onStartTrackingTouch(s: SeekBar?) {}
-                override fun onStopTrackingTouch(s: SeekBar?) {}
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
             })
-            bars.add(sb)
-            row.addView(sb, lp(0, WRAP, 1f))
-            box.addView(row, lp(MATCH, WRAP))
-        }
-        box.addView(hex, lp(MATCH, WRAP).margins(0, ctx.dp(8), 0, ctx.dp(8)))
-        hex.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (updating) return
-                try { color = Component.parseColor(s.toString()); refresh(true) } catch (_: Exception) {}
+            return context.hbox().apply {
+                setPadding(0, context.dp(4), 0, 0)
+                addView(context.label(name, 12f, C.DIM), lp(context.dp(56), WRAP))
+                addView(bar, lp(0, WRAP, 1f))
             }
-        })
-        val pal = ctx.hbox()
-        for (c in PALETTE) {
-            pal.addView(View(ctx).apply {
-                background = round(c.toInt(), ctx.dp(4).toFloat(), 1, 0xFF555555.toInt())
-                setOnClickListener { color = c.toInt(); refresh() }
-            }, lp(0, ctx.dp(26), 1f).margins(ctx.dp(1), 0, ctx.dp(1), 0))
         }
-        box.addView(pal, lp(MATCH, WRAP))
-        refresh()
-        MaterialAlertDialogBuilder(ctx)
+
+        box.addView(sliderRow("Hue", (hue / 360f * 1000f).toInt()) { hue = it / 1000f * 360f })
+        box.addView(sliderRow("Saturation", (sat * 1000f).toInt()) { sat = it / 1000f })
+        box.addView(sliderRow("Brightness", (value * 1000f).toInt()) { value = it / 1000f })
+        box.addView(sliderRow("Alpha", (alpha * 1000f).toInt()) { alpha = it / 1000f })
+
+        hexField = context.field(Colors.toHex(current())).apply {
+            layoutParams = lp(0, WRAP, 1f)
+            setOnFocusChangeListener { _, has ->
+                if (!has) parseHex(text.toString())
+            }
+            setOnEditorActionListener { _, _, _ -> parseHex(text.toString()); false }
+        }
+        box.addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            addView(context.label("Hex", 12f, C.DIM), lp(context.dp(56), WRAP))
+            addView(hexField!!)
+        })
+
+        // preset swatches for fast access to the engine palette
+        val presets = intArrayOf(
+            0xFFFFFFFF.toInt(), 0xFF000000.toInt(), 0xFF4C8DFF.toInt(), 0xFF57AB5A.toInt(),
+            0xFFE5534B.toInt(), 0xFFE0B341.toInt(), 0xFFFF8A3D.toInt(), 0xFFB36BE0.toInt(),
+            0xFF25C2C2.toInt(), 0xFF9AA0A6.toInt(), 0xFF2B2D31.toInt(), 0x00000000
+        )
+        val row = context.hbox().apply {
+            setPadding(0, context.dp(8), 0, 0)
+            gravity = Gravity.START
+        }
+        for (p in presets) {
+            row.addView(View(context).apply {
+                background = round(p, context.dp(4).toFloat(), 1, C.BORDER)
+                layoutParams = lp(context.dp(24), context.dp(24)).margins(0, 0, context.dp(6), 0)
+                isClickable = true
+                setOnClickListener {
+                    val hsv = FloatArray(3)
+                    Color.colorToHSV(p, hsv)
+                    hue = hsv[0]; sat = hsv[1]; value = hsv[2]
+                    alpha = Color.alpha(p) / 255f
+                    refresh()
+                }
+            })
+        }
+        box.addView(row)
+
+        AlertDialog.Builder(context)
             .setTitle("Color")
             .setView(box)
-            .setPositiveButton("OK") { _, _ -> onPick(color) }
+            .setPositiveButton("OK") { _, _ -> onPick(current()) }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun parseHex(raw: String) {
+        val c = Colors.parse(raw.trim(), current())
+        val hsv = FloatArray(3)
+        Color.colorToHSV(c, hsv)
+        hue = hsv[0]; sat = hsv[1]; value = hsv[2]
+        alpha = Color.alpha(c) / 255f
+        preview?.background = round(c, context.dp(8).toFloat(), 1, C.BORDER)
+    }
+
+    companion object {
+        fun pick(context: Context, initial: Int, onPick: (Int) -> Unit) = ColorPickerDialog(context, initial, onPick).show()
     }
 }

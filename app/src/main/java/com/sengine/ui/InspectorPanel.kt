@@ -1,407 +1,343 @@
 package com.sengine.ui
 
-import android.annotation.SuppressLint
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.MotionEvent
+import android.app.AlertDialog
+import android.content.Context
 import android.view.View
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.TextView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.widget.ScrollView
 import com.sengine.engine.Engine
-import com.sengine.engine.core.AssetKind
 import com.sengine.engine.core.Component
 import com.sengine.engine.core.ComponentRegistry
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.Prop
-import com.sengine.engine.core.ScriptComponent
+import com.sengine.engine.core.Scene
+import com.sengine.engine.math.Colors
+import com.sengine.engine.render.Tool
 
-interface EditorHost {
-    val engine: Engine
-    val history: History
-    val project: com.sengine.project.Project
-    fun selectedId(): Long
-    fun onStructureChanged()
-    fun select(id: Long)
-    fun openScript(name: String)
-    fun newScriptDialog(onCreated: (String) -> Unit)
-}
+/**
+ * Inspector for the selected object: transform, tags/groups/layer, every component's properties
+ * (floats, ints, bools, strings, colors, choices, vectors, asset references, flags and runtime
+ * info) plus add/remove component, duplicate, prefab and runtime telemetry.
+ *
+ * All edits go straight to the live component objects, so they are visible instantly on the GL
+ * thread; callers get a [Host.onEdited] callback to push undo entries and mark the project dirty.
+ */
+class InspectorPanel(
+    private val context: Context,
+    private val engine: Engine,
+    private val host: Host
+) {
 
-/** Builds the property editor for the selected GameObject (or scene settings). */
-class InspectorPanel(private val act: EditorActivity, private val host: EditorHost, private val container: LinearLayout) {
+    interface Host {
+        fun onEdited(commit: Boolean)
+        fun onStructureChanged()
+        fun openScript(name: String)
+        fun openTilemapEditor(go: GameObject)
+        fun openParticleEditor(go: GameObject)
+        fun openAnimationEditor(clip: String)
+        fun openPrefabEditor(go: GameObject)
+        fun pickAsset(kind: com.sengine.engine.core.AssetKind, current: String, onPick: (String) -> Unit)
+    }
 
-    private val refreshers = ArrayList<() -> Unit>()
-    private var current: GameObject? = null
-    private var updating = false
-    private val engine get() = host.engine
+    private val root = context.vbox()
+
+    fun view(): View = ScrollView(context).apply {
+        addView(root)
+        setBackgroundColor(C.PANEL)
+    }
 
     fun rebuild() {
-        container.removeAllViews()
-        refreshers.clear()
-        val go = synchronized(engine.lock) { engine.scene.findById(host.selectedId()) }
-        current = go
-        if (go == null) buildSceneSettings() else buildObject(go)
-    }
-
-    fun refreshValues() {
-        val go = current
-        if (go != null && go.destroyed) { rebuild(); return }
-        updating = true
-        refreshers.forEach { it() }
-        updating = false
-    }
-
-    private fun <T> locked(block: () -> T): T = synchronized(engine.lock) { block() }
-
-    private fun changed(structural: Boolean = false) {
-        if (structural) host.onStructureChanged()
-    }
-
-    // ------------------------------------------------------------------ scene
-    private fun buildSceneSettings() {
+        root.removeAllViews()
         val scene = engine.scene
-        container.addView(sectionHeader("Scene: ${scene.name}", null))
-        val body = sectionBody()
-        body.addView(act.label("Nothing selected. Tap an object in the viewport or hierarchy.", 12f, C.DIM),
-            lp(MATCH, WRAP).margins(0, 0, 0, act.dp(8)))
-        addProp(body, Prop.F("Gravity X", { engine.scene.gravityX }, { engine.scene.gravityX = it }))
-        addProp(body, Prop.F("Gravity Y", { engine.scene.gravityY }, { engine.scene.gravityY = it }))
-        body.addView(act.label("3D World", 12f, C.DIM, true), lp(MATCH, WRAP).margins(0, act.dp(10), 0, act.dp(2)))
-        addProp(body, Prop.F("Gravity 3D", { engine.scene.gravity3D }, { engine.scene.gravity3D = it }))
-        addProp(body, Prop.Color("Ambient", { engine.scene.ambient }, { engine.scene.ambient = it }))
-        addProp(body, Prop.B("Fog", { engine.scene.fog }, { engine.scene.fog = it }))
-        addProp(body, Prop.Color("Fog Color", { engine.scene.fogColor }, { engine.scene.fogColor = it }))
-        addProp(body, Prop.F("Fog Start", { engine.scene.fogStart }, { engine.scene.fogStart = it.coerceAtLeast(0f) }))
-        addProp(body, Prop.F("Fog End", { engine.scene.fogEnd }, { engine.scene.fogEnd = it.coerceAtLeast(0.1f) }))
-        body.addView(act.label("Project", 12f, C.DIM, true), lp(MATCH, WRAP).margins(0, act.dp(10), 0, act.dp(2)))
-        addProp(body, Prop.Choice("Orientation", listOf("Landscape", "Portrait"), { host.project.orientation },
-            { host.project.orientation = it; host.project.saveMeta() }), undo = false)
-        val scenes = host.project.listScenes().ifEmpty { listOf(scene.name) }
-        addProp(body, Prop.Choice("Start Scene", scenes, { scenes.indexOf(host.project.startScene).coerceAtLeast(0) },
-            { host.project.startScene = scenes[it]; host.project.saveMeta() }), undo = false)
-        val stats = act.label("", 12f, C.DIM)
-        body.addView(stats, lp(MATCH, WRAP).margins(0, act.dp(10), 0, 0))
-        refreshers.add {
-            stats.text = "Objects: ${engine.scene.objects.size}   •   Mode: ${engine.mode.name.lowercase()}"
-        }
-        container.addView(body)
-    }
-
-    // ------------------------------------------------------------------ object
-    private fun buildObject(go: GameObject) {
-        val head = act.vbox().apply { setPadding(act.dp(10), act.dp(10), act.dp(10), act.dp(6)); setBackgroundColor(C.HEADER) }
-        val row = act.hbox()
-        val active = CheckBox(act).apply { isChecked = go.active }
-        active.setOnCheckedChangeListener { _, b ->
-            if (updating) return@setOnCheckedChangeListener
-            record(); locked { go.active = b }; changed(true)
-        }
-        refreshers.add { if (active.isChecked != go.active) active.isChecked = go.active }
-        row.addView(active)
-        val name = act.field(go.name)
-        bindText(name, { go.name }, { go.name = it.ifBlank { "GameObject" }; host.onStructureChanged() })
-        row.addView(name, lp(0, WRAP, 1f))
-        head.addView(row)
-
-        val row2 = act.hbox()
-        row2.addView(act.label("Tag", 12f, C.DIM), lp(act.dp(30), WRAP))
-        val tag = act.field(go.tag)
-        bindText(tag, { go.tag }, { go.tag = it })
-        row2.addView(tag, lp(0, WRAP, 1f))
-        row2.addView(act.label("  Order", 12f, C.DIM))
-        val order = act.field(go.order.toString(), numeric = true)
-        bindText(order, { go.order.toString() }, { s -> s.toFloatOrNull()?.let { go.order = it.toInt() } })
-        row2.addView(order, lp(act.dp(56), WRAP))
-        head.addView(row2, lp(MATCH, WRAP).margins(0, act.dp(4), 0, 0))
-
-        val row3 = act.hbox()
-        row3.addView(act.label("Parent", 12f, C.DIM), lp(act.dp(46), WRAP))
-        val parentBtn = act.button(go.parent?.name ?: "(none)") { choose -> chooseParent(go, choose as TextView) }
-        parentBtn.textSize = 12f
-        row3.addView(parentBtn, lp(0, WRAP, 1f))
-        head.addView(row3, lp(MATCH, WRAP).margins(0, act.dp(4), 0, 0))
-        container.addView(head, lp(MATCH, WRAP))
-
-        // transform
-        container.addView(sectionHeader("Transform", null))
-        val tb = sectionBody()
-        vec3(tb, "Position", Prop.F("X", { go.x }, { go.x = it }), Prop.F("Y", { go.y }, { go.y = it }), Prop.F("Z", { go.z }, { go.z = it }))
-        vec3(tb, "Rotation", Prop.F("X", { go.rotX }, { go.rotX = it }, 1f), Prop.F("Y", { go.rotY }, { go.rotY = it }, 1f), Prop.F("Z", { go.rotation }, { go.rotation = it }, 1f))
-        vec3(tb, "Scale", Prop.F("X", { go.scaleX }, { go.scaleX = it }, 0.05f), Prop.F("Y", { go.scaleY }, { go.scaleY = it }, 0.05f), Prop.F("Z", { go.scaleZ }, { go.scaleZ = it }, 0.05f))
-        container.addView(tb)
-
-        for (c in go.components.toList()) buildComponent(go, c)
-
-        container.addView(act.button("+ Add Component", C.ACCENT, 0xFFFFFFFF.toInt()) { addComponentDialog(go) },
-            lp(MATCH, WRAP).margins(act.dp(10), act.dp(12), act.dp(10), act.dp(24)))
-    }
-
-    private fun buildComponent(go: GameObject, c: Component) {
-        val header = sectionHeader(prettyType(c.type), c)
-        val en = CheckBox(act).apply { isChecked = c.enabled }
-        en.setOnCheckedChangeListener { _, b -> if (!updating) { record(); locked { c.enabled = b } } }
-        header.addView(en, 0)
-        val menu = act.button("⋮", C.HEADER) { v ->
-            val pm = PopupMenu(act, v)
-            pm.menu.add("Move Up"); pm.menu.add("Move Down"); pm.menu.add("Reset"); pm.menu.add("Remove")
-            pm.setOnMenuItemClickListener {
-                record()
-                locked {
-                    val i = go.components.indexOf(c)
-                    when (it.title) {
-                        "Move Up" -> if (i > 0) { go.components.removeAt(i); go.components.add(i - 1, c) }
-                        "Move Down" -> if (i < go.components.size - 1) { go.components.removeAt(i); go.components.add(i + 1, c) }
-                        "Reset" -> {
-                            val fresh = ComponentRegistry.create(c.type)!!
-                            fresh.gameObject = go
-                            go.components[i] = fresh
-                        }
-                        "Remove" -> go.components.remove(c)
-                    }
-                    Unit
-                }
-                rebuild(); changed(true)
-                true
+        val state = engine.editor
+        val selected = state?.selectedId?.let { scene.findById(it) }
+        if (selected == null || selected.destroyed) {
+            root.addView(context.label("No selection", 13f, C.DIM).apply {
+                setPadding(context.dp(12), context.dp(16), context.dp(12), context.dp(8))
+            })
+            root.addView(context.label("Select an object in the hierarchy or tap one in the viewport.", 11.5f, C.DIM).apply {
+                setPadding(context.dp(12), 0, context.dp(12), context.dp(12))
+            })
+            if (state != null) {
+                root.addView(sceneSection(scene))
             }
-            pm.show()
+            return
         }
-        header.addView(menu)
-        container.addView(header)
-        val body = sectionBody()
-        for (p in c.props()) addProp(body, p)
-        if (c is ScriptComponent) {
-            val row = act.hbox()
-            row.addView(act.button("Edit Script") { if (c.script.isNotBlank()) host.openScript(c.script) }, lp(0, WRAP, 1f).margins(0, act.dp(6), act.dp(4), 0))
-            row.addView(act.button("New Script") {
-                host.newScriptDialog { n -> record(); locked { c.script = n }; rebuild(); host.openScript(n) }
-            }, lp(0, WRAP, 1f).margins(act.dp(4), act.dp(6), 0, 0))
-            body.addView(row, lp(MATCH, WRAP))
+        root.addView(objectHeader(selected, scene))
+        root.addView(context.divider())
+        root.addView(transformSection(selected))
+        root.addView(context.divider())
+        for (c in selected.components.toList()) {
+            root.addView(componentSection(selected, c))
         }
-        container.addView(body)
-    }
-
-    private fun prettyType(t: String) = t.replace(Regex("([a-z])([A-Z])"), "$1 $2")
-
-    // ------------------------------------------------------------------ widgets
-    private fun sectionHeader(title: String, @Suppress("UNUSED_PARAMETER") c: Component?): LinearLayout {
-        val h = act.hbox().apply {
-            setBackgroundColor(C.PANEL2)
-            setPadding(act.dp(8), act.dp(4), act.dp(4), act.dp(4))
-        }
-        h.addView(act.label(title, 13f, C.TEXT, true), lp(0, WRAP, 1f))
-        h.layoutParams = lp(MATCH, WRAP).margins(0, act.dp(6), 0, 0)
-        return h
-    }
-
-    private fun sectionBody(): LinearLayout = act.vbox().apply { setPadding(act.dp(10), act.dp(6), act.dp(10), act.dp(6)) }
-
-    private fun record() = host.history.record(host.selectedId())
-
-    private fun bindText(et: EditText, get: () -> String, set: (String) -> Unit) {
-        et.setOnFocusChangeListener { _, has -> if (has) record() }
-        et.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (updating) return
-                locked { set(s.toString()) }
-            }
+        root.addView(context.divider())
+        root.addView(context.hbox().apply {
+            setPadding(context.dp(8), 0, context.dp(8), context.dp(12))
+            addView(context.button("＋ Add component", C.ACCENT, 0xFFFFFFFF.toInt()) { addComponentDialog(selected) }, lp(MATCH, WRAP))
         })
-        et.setOnEditorActionListener { v, _, _ -> v.clearFocus(); act.hideKeyboard(v); false }
-        refreshers.add {
-            if (!et.hasFocus()) {
-                val v = locked { get() }
-                if (et.text.toString() != v) et.setText(v)
-            }
-        }
     }
 
-    private fun propLabel(text: String, width: Int = act.dp(92)): TextView =
-        act.label(text, 12f, C.DIM).apply { layoutParams = lp(width, WRAP) }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun scrubbable(label: TextView, p: Prop.F) {
-        var lastX = 0f
-        label.setOnTouchListener { _, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { lastX = e.rawX; record(); label.setTextColor(C.ACCENT) }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = e.rawX - lastX
-                    lastX = e.rawX
-                    locked { p.set(p.get() + dx / act.dp(4) * p.step) }
-                    refreshValues()
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> label.setTextColor(C.DIM)
-            }
-            true
-        }
-    }
-
-    private fun floatField(p: Prop.F): EditText {
-        val et = act.field(fmt(p.get()), numeric = true)
-        bindText(et, { fmt(p.get()) }, { s -> s.toFloatOrNull()?.let { p.set(it) } })
-        return et
-    }
-
-    private fun vec2(parent: LinearLayout, title: String, px: Prop.F, py: Prop.F) {
-        val row = act.hbox()
-        row.addView(propLabel(title, act.dp(64)))
-        val lx = act.label("X", 12f, 0xFFFF6B6B.toInt()).apply { setPadding(act.dp(4), 0, act.dp(4), 0) }
-        scrubbable(lx, px)
-        row.addView(lx)
-        row.addView(floatField(px), lp(0, WRAP, 1f))
-        val ly = act.label("Y", 12f, 0xFF6BDB6B.toInt()).apply { setPadding(act.dp(8), 0, act.dp(4), 0) }
-        scrubbable(ly, py)
-        row.addView(ly)
-        row.addView(floatField(py), lp(0, WRAP, 1f))
-        parent.addView(row, lp(MATCH, WRAP).margins(0, act.dp(2), 0, act.dp(2)))
-    }
-
-    private fun vec3(parent: LinearLayout, title: String, px: Prop.F, py: Prop.F, pz: Prop.F) {
-        val row = act.hbox()
-        row.addView(propLabel(title, act.dp(58)))
-        for ((p, col) in listOf(px to 0xFFFF6B6B.toInt(), py to 0xFF6BDB6B.toInt(), pz to 0xFF6BA8FF.toInt())) {
-            val l = act.label(p.name, 11f, col).apply { setPadding(act.dp(3), 0, act.dp(2), 0) }
-            scrubbable(l, p)
-            row.addView(l)
-            row.addView(floatField(p).apply { textSize = 12f }, lp(0, WRAP, 1f))
-        }
-        parent.addView(row, lp(MATCH, WRAP).margins(0, act.dp(2), 0, act.dp(2)))
-    }
-
-    private fun addProp(parent: LinearLayout, p: Prop, undo: Boolean = true) {
-        val row = act.hbox()
-        val label = propLabel(p.name)
-        row.addView(label)
-        when (p) {
-            is Prop.F -> {
-                scrubbable(label, p)
-                row.addView(floatField(p), lp(0, WRAP, 1f))
-            }
-            is Prop.I -> {
-                val et = act.field(p.get().toString(), numeric = true)
-                bindText(et, { p.get().toString() }, { s -> s.toFloatOrNull()?.let { p.set(it.toInt()) } })
-                row.addView(et, lp(0, WRAP, 1f))
-            }
-            is Prop.B -> {
-                val cb = CheckBox(act).apply { isChecked = p.get() }
-                cb.setOnCheckedChangeListener { _, b -> if (!updating) { if (undo) record(); locked { p.set(b) } } }
-                refreshers.add { val v = locked { p.get() }; if (cb.isChecked != v) cb.isChecked = v }
-                row.addView(cb)
-            }
-            is Prop.S -> {
-                val et = act.field(p.get(), multiline = p.multiline)
-                if (p.multiline) et.maxLines = 4
-                bindText(et, p.get, p.set)
-                row.addView(et, lp(0, WRAP, 1f))
-            }
-            is Prop.Color -> {
-                val sw = View(act)
-                fun paint() { sw.background = round(p.get(), act.dp(4).toFloat(), act.dp(1), 0xFF555555.toInt()) }
-                paint()
-                sw.setOnClickListener {
-                    ColorPickerDialog.show(act, p.get()) { c -> if (undo) record(); locked { p.set(c) }; paint() }
-                }
-                refreshers.add { paint() }
-                row.addView(sw, lp(0, act.dp(26), 1f))
-            }
-            is Prop.Choice -> {
-                val b = act.button(p.options.getOrElse(p.get()) { "?" }) {}
-                b.textSize = 12f
-                b.setOnClickListener { v ->
-                    val pm = PopupMenu(act, v)
-                    p.options.forEachIndexed { i, o -> pm.menu.add(0, i, i, o) }
-                    pm.setOnMenuItemClickListener { item ->
-                        if (undo) record()
-                        locked { p.set(item.itemId) }
-                        b.text = p.options[item.itemId]
-                        true
+    // ---------------------------------------------------------------- header
+    private fun objectHeader(go: GameObject, scene: Scene): View = context.vbox().apply {
+        setPadding(context.dp(8), context.dp(8), context.dp(8), context.dp(4))
+        addView(context.hbox().apply {
+            val nameField = context.field(go.name).apply {
+                layoutParams = lp(0, WRAP, 1f)
+                setOnFocusChangeListener { _, has ->
+                    if (!has) {
+                        val n = text.toString().trim()
+                        if (n.isNotEmpty()) { go.name = n; host.onStructureChanged() }
                     }
-                    pm.show()
                 }
-                refreshers.add { val t = p.options.getOrElse(locked { p.get() }) { "?" }; if (b.text != t) b.text = t }
-                row.addView(b, lp(0, WRAP, 1f))
             }
-            is Prop.Asset -> {
-                val b = act.button(p.get().ifBlank { "(none)" }) {}
-                b.textSize = 12f
-                b.setOnClickListener { chooseAsset(p) { b.text = p.get().ifBlank { "(none)" } } }
-                refreshers.add { val t = locked { p.get() }.ifBlank { "(none)" }; if (b.text != t) b.text = t }
-                row.addView(b, lp(0, WRAP, 1f))
-            }
+            addView(nameField)
+            addView(context.button("⧉") { duplicate(go) }.apply { layoutParams = lp(context.dp(38), WRAP).margins(context.dp(6), 0, 0, 0) })
+            addView(context.button("✕", C.RED, 0xFFFFFFFF.toInt()) {
+                context.confirmDialog("Delete ${go.name}?", "The object and its children are removed from the scene.") {
+                    scene.remove(go)
+                    engine.editor?.clearSelection()
+                    host.onStructureChanged()
+                    host.onEdited(true)
+                }
+            }.apply { layoutParams = lp(context.dp(38), WRAP).margins(context.dp(6), 0, 0, 0) })
+        })
+        addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            addView(context.label("Tag", 12f, C.DIM), lp(context.dp(48), WRAP))
+            addView(context.field(go.tag).apply {
+                layoutParams = lp(0, WRAP, 1f)
+                setOnFocusChangeListener { _, has ->
+                    if (!has) { go.tag = text.toString(); host.onEdited(true) }
+                }
+            })
+        })
+        addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            val layers = scene.sortingLayers()
+            addView(context.label("Layer", 12f, C.DIM), lp(context.dp(48), WRAP))
+            addView(context.choice(layers, layers.indexOf(go.sortingLayer).coerceAtLeast(0)) {
+                go.sortingLayer = layers[it]
+                host.onEdited(true)
+            }, lp(0, WRAP, 1f))
+        })
+        addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            addView(context.label("Order", 12f, C.DIM), lp(context.dp(48), WRAP))
+            addView(context.intField(go.order) { go.order = it; host.onEdited(true) }, lp(0, WRAP, 1f))
+            addView(context.label(" Y-Sort", 12f, C.DIM), lp(WRAP, WRAP))
+            addView(context.checkField(go.sortByY) { go.sortByY = it; host.onEdited(true) })
+        })
+        addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            addView(context.checkField(go.active) {
+                go.active = it
+                host.onStructureChanged()
+                host.onEdited(true)
+            })
+            addView(context.label("Active", 12f, C.DIM))
+            addView(context.spacer())
+            addView(context.label("id ${go.id} · ${go.depth()} deep", 10.5f, C.DIM))
+        })
+        if (go.groups.isNotEmpty()) {
+            addView(context.label("groups: ${go.groups.joinToString(", ")}", 11f, C.DIM).apply { setPadding(0, context.dp(4), 0, 0) })
         }
-        parent.addView(row, lp(MATCH, WRAP).margins(0, act.dp(2), 0, act.dp(2)))
     }
 
-    // ------------------------------------------------------------------ dialogs
-    private fun chooseAsset(p: Prop.Asset, done: () -> Unit) {
-        val items = listOf("(none)") + host.project.listAssets(p.kind)
-        val extra = if (p.kind == AssetKind.SCRIPT) listOf("+ New Script…") else emptyList()
-        val all = items + extra
-        MaterialAlertDialogBuilder(act)
-            .setTitle("Select ${p.name}")
-            .setItems(all.toTypedArray()) { _, i ->
-                when {
-                    i == 0 -> { record(); locked { p.set("") }; done() }
-                    i < items.size -> { record(); locked { p.set(items[i]) }; done() }
-                    else -> host.newScriptDialog { n -> record(); locked { p.set(n) }; done() }
-                }
+    private fun duplicate(go: GameObject) {
+        val copy = engine.scene.duplicate(go)
+        engine.editor?.select(copy.id)
+        host.onStructureChanged()
+        host.onEdited(true)
+    }
+
+    // ---------------------------------------------------------------- transform
+    private fun transformSection(go: GameObject): View = context.vbox().apply {
+        setPadding(context.dp(8), context.dp(6), context.dp(8), context.dp(6))
+        addView(context.section("Transform"))
+        addView(context.row("Position", context.hbox().apply {
+            addView(context.numberField(go.x, 0.1f) { go.x = it; host.onEdited(false) }, lp(0, WRAP, 1f))
+            addView(context.numberField(go.y, 0.1f) { go.y = it; host.onEdited(false) }, lp(0, WRAP, 1f).margins(context.dp(6), 0, 0, 0))
+        }))
+        addView(context.row("Rotation", context.numberField(go.rotation, 5f) { go.rotation = it; host.onEdited(false) }))
+        addView(context.row("Scale", context.hbox().apply {
+            addView(context.numberField(go.scaleX, 0.1f) { go.scaleX = it; host.onEdited(false) }, lp(0, WRAP, 1f))
+            addView(context.numberField(go.scaleY, 0.1f) { go.scaleY = it; host.onEdited(false) }, lp(0, WRAP, 1f).margins(context.dp(6), 0, 0, 0))
+        }))
+        addView(context.hbox().apply {
+            setPadding(0, context.dp(6), 0, 0)
+            addView(context.button("Reset rotation") { go.rotation = 0f; host.onEdited(true); rebuild() })
+            addView(context.button("Center on parent") {
+                go.x = 0f; go.y = 0f
+                host.onEdited(true)
+            }.apply { layoutParams = lp(WRAP, WRAP).margins(context.dp(6), 0, 0, 0) })
+            addView(context.button("Flip X") {
+                go.scaleX = -go.scaleX
+                host.onEdited(true)
+            }.apply { layoutParams = lp(WRAP, WRAP).margins(context.dp(6), 0, 0, 0) })
+        })
+    }
+
+    // ---------------------------------------------------------------- components
+    private fun componentSection(go: GameObject, c: Component): View = context.vbox().apply {
+        setPadding(context.dp(8), context.dp(6), context.dp(8), context.dp(6))
+        addView(context.section(c.type, "✕", {
+            context.confirmDialog("Remove ${c.type}?", "Component settings are lost.") {
+                go.remove(c)
+                host.onStructureChanged()
+                host.onEdited(true)
+                rebuild()
             }
-            .show()
+        }))
+        if (!c.enabled) {
+            addView(context.label("(disabled - runtime skipped)", 11f, C.YELLOW))
+        }
+        for (p in c.props()) {
+            addView(propRow(go, c, p))
+        }
+        // component-specific shortcuts: real tools, not decoration
+        when {
+            c is com.sengine.engine.core.ScriptComponent -> addView(context.button("Edit script") {
+                if (c.script.isNotBlank()) host.openScript(c.script) else context.toast("Assign a script asset first")
+            }.apply { layoutParams = lp(MATCH, WRAP).margins(0, context.dp(6), 0, 0) })
+            c is com.sengine.engine.tilemap.TilemapRenderer -> addView(context.button("Edit tilemap") { host.openTilemapEditor(go) }
+                .apply { layoutParams = lp(MATCH, WRAP).margins(0, context.dp(6), 0, 0) })
+            c is com.sengine.engine.fx.ParticleEmitter -> addView(context.button("Open particle editor") { host.openParticleEditor(go) }
+                .apply { layoutParams = lp(MATCH, WRAP).margins(0, context.dp(6), 0, 0) })
+            c is com.sengine.engine.anim.Animator -> addView(context.button("Open animation editor") {
+                host.openAnimationEditor(c.clip)
+            }.apply { layoutParams = lp(MATCH, WRAP).margins(0, context.dp(6), 0, 0) })
+        }
     }
 
-    private fun chooseParent(go: GameObject, btn: TextView) {
-        val candidates = locked { engine.scene.objects.filter { it !== go && !go.isAncestorOf(it) } }
-        val names = listOf("(none)") + candidates.map { it.name }
-        MaterialAlertDialogBuilder(act)
-            .setTitle("Parent of ${go.name}")
-            .setItems(names.toTypedArray()) { _, i ->
-                record()
-                locked { reparentKeepWorld(go, if (i == 0) null else candidates[i - 1]) }
-                btn.text = go.parent?.name ?: "(none)"
-                changed(true)
-                refreshValues()
+    private fun propRow(go: GameObject, c: Component, p: Prop): View = when (p) {
+        is Prop.F -> context.row(p.name, context.numberField(p.get(), p.step, p.min, p.max) {
+            p.set(it); host.onEdited(false)
+        }, p.tooltip)
+        is Prop.I -> context.row(p.name, context.intField(p.get(), p.step, p.min, p.max) {
+            p.set(it); host.onEdited(false)
+        }, p.tooltip)
+        is Prop.B -> context.row(p.name, context.hbox().apply {
+            addView(context.checkField(p.get()) { p.set(it); host.onEdited(true) })
+            addView(context.spacer(0.01f))
+        }, p.tooltip)
+        is Prop.S -> context.row(p.name, context.field(p.get(), multiline = p.multiline).apply {
+            setOnFocusChangeListener { _, has -> if (!has) { p.set(text.toString()); host.onEdited(true) } }
+        }, p.tooltip)
+        is Prop.Color -> context.row(p.name, context.hbox().apply {
+            addView(context.colorSwatch(p.get()) { p.set(it); host.onEdited(true) })
+            addView(context.label(Colors.toHex(p.get()), 11.5f, C.DIM).apply { setPadding(context.dp(8), 0, 0, 0) })
+            addView(context.spacer())
+        }, p.tooltip)
+        is Prop.Choice -> context.row(p.name, context.choice(p.options, p.get()) { p.set(it); host.onEdited(true); rebuild() }, p.tooltip)
+        is Prop.Asset -> context.row(p.name, context.hbox().apply {
+            val value = context.label(p.get().ifBlank { "(none)" }, 12f, if (p.get().isBlank()) C.DIM else C.TEXT).apply {
+                layoutParams = lp(0, WRAP, 1f)
             }
-            .show()
+            addView(value)
+            addView(context.button("…") { host.pickAsset(p.kind, p.get()) { picked -> p.set(picked); host.onEdited(true); rebuild() } })
+        }, p.tooltip)
+        is Prop.V2 -> context.row(p.name, context.hbox().apply {
+            addView(context.numberField(p.getX(), 0.05f) { p.setX(it); host.onEdited(false) }, lp(0, WRAP, 1f))
+            addView(context.numberField(p.getY(), 0.05f) { p.setY(it); host.onEdited(false) }, lp(0, WRAP, 1f).margins(context.dp(6), 0, 0, 0))
+        }, p.tooltip)
+        is Prop.Flags -> context.row(p.name, context.vbox().apply {
+            for (i in p.labels.indices) {
+                addView(context.hbox().apply {
+                    addView(context.checkField((p.get() and (1 shl i)) != 0) { on ->
+                        p.set(if (on) p.get() or (1 shl i) else p.get() and (1 shl i).inv())
+                        host.onEdited(true)
+                    })
+                    addView(context.label(p.labels[i], 12f, C.TEXT))
+                })
+            }
+            addView(context.spacer(0.01f))
+        }, p.tooltip)
+        is Prop.Info -> context.row(p.name, context.label(p.get(), 12f, C.ACCENT), p.tooltip)
     }
 
-    fun addComponentDialog(go: GameObject) {
-        val cats = ComponentRegistry.categories.entries.toList()
-        MaterialAlertDialogBuilder(act)
-            .setTitle("Add Component")
-            .setItems(cats.map { "${it.key}  ›" }.toTypedArray()) { _, ci ->
-                val types = cats[ci].value.filter { t -> t == "Script" || go.components.none { it.type == t } }
+    private fun addComponentDialog(go: GameObject) {
+        val categories = ComponentRegistry.categories.keys.toList()
+        AlertDialog.Builder(context)
+            .setTitle("Add component")
+            .setItems(categories.toTypedArray()) { _, which ->
+                val types = ComponentRegistry.categories[categories[which]] ?: emptyList()
                 if (types.isEmpty()) return@setItems
-                MaterialAlertDialogBuilder(act)
-                    .setTitle(cats[ci].key)
-                    .setItems(types.map { prettyType(it) }.toTypedArray()) { _, i ->
-                        record()
-                        locked { ComponentRegistry.create(types[i])?.let { go.add(it) } }
-                        rebuild(); changed(true)
+                AlertDialog.Builder(context)
+                    .setTitle(categories[which])
+                    .setItems(types.toTypedArray()) { _, index ->
+                        val component = ComponentRegistry.create(types[index])
+                        if (component == null) {
+                            context.toast("Unknown component: ${types[index]}")
+                            return@setItems
+                        }
+                        val missing = component.requires().filter { go.getByType(it) == null }
+                        if (missing.isNotEmpty() && missing.size > 4) {
+                            context.toast("Add the required components first: ${missing.joinToString(", ")}")
+                            return@setItems
+                        }
+                        for (need in missing) ComponentRegistry.create(need)?.let { go.add(it) }
+                        go.add(component)
+                        host.onStructureChanged()
+                        host.onEdited(true)
+                        rebuild()
                     }
-                    .setNegativeButton("Back") { _, _ -> addComponentDialog(go) }
                     .show()
             }
             .show()
     }
 
-    companion object {
-        /** Changes parent while keeping the world position/rotation/scale approximately intact. */
-        fun reparentKeepWorld(go: GameObject, newParent: GameObject?) {
-            val w = go.computeWorld()
-            go.parent = newParent
-            if (newParent == null) {
-                go.x = w.tx; go.y = w.ty; go.rotation = w.rotationDeg
-                go.scaleX = w.scaleX; go.scaleY = w.scaleY
-            } else {
-                val inv = newParent.computeWorld().inverted() ?: return
-                val local = com.sengine.engine.math.Affine().setMul(inv, w)
-                go.x = local.tx; go.y = local.ty; go.rotation = local.rotationDeg
-                go.scaleX = local.scaleX; go.scaleY = local.scaleY
-            }
+    // ---------------------------------------------------------------- scene settings
+    private fun sceneSection(scene: Scene): View = context.vbox().apply {
+        setPadding(context.dp(8), context.dp(6), context.dp(8), context.dp(6))
+        addView(context.section("Scene"))
+        addView(context.row("Name", context.field(scene.name).apply {
+            setOnFocusChangeListener { _, has -> if (!has) { scene.name = text.toString(); host.onEdited(true) } }
+        }))
+        addView(context.row("Gravity", context.hbox().apply {
+            addView(context.numberField(scene.gravityX, 0.5f) { scene.gravityX = it; host.onEdited(true) }, lp(0, WRAP, 1f))
+            addView(context.numberField(scene.gravityY, 0.5f) { scene.gravityY = it; host.onEdited(true) }, lp(0, WRAP, 1f).margins(context.dp(6), 0, 0, 0))
+        }))
+        addView(context.row("Ambient", context.hbox().apply {
+            addView(context.colorSwatch(scene.ambient) { scene.ambient = it; host.onEdited(true) })
+            addView(context.spacer())
+        }))
+        addView(context.row("Objects", context.label(scene.objects.count { !it.destroyed }.toString(), 12f, C.ACCENT)))
+        addView(context.row("Sorting layers", context.label(scene.sortingLayers().joinToString(", "), 11f, C.DIM)))
+        val tool = engine.editor?.tool
+        addView(context.row("Active tool", context.label(tool?.label ?: "-", 12f, C.ACCENT)))
+        if (engine.mode == Engine.Mode.PLAY || engine.mode == Engine.Mode.PAUSED) {
+            addView(context.divider())
+            addView(context.section("Runtime"))
+            addView(context.row("FPS", context.label(engine.fps.toInt().toString(), 12f, C.ACCENT)))
+            addView(context.row("Rigid bodies", context.label(engine.rigidBodyCount.toString(), 12f, C.ACCENT)))
+            addView(context.row("Particles", context.label(engine.activeParticles.toString(), 12f, C.ACCENT)))
+            addView(context.row("Tasks", context.label(engine.activeTasks.toString(), 12f, C.ACCENT)))
+            addView(context.row("Time", context.label(fmt(engine.time.toFloat()) + "s", 12f, C.ACCENT)))
         }
     }
+}
+
+/** Small helper so panels can list sorting layers without touching Scene internals. */
+fun Scene.sortingLayers(): List<String> {
+    val out = ArrayList<String>()
+    for (layer in sortingLayers) if (layer.isNotBlank() && layer !in out) out.add(layer)
+    for (go in objects) if (!go.sortingLayer.isBlank() && go.sortingLayer !in out) out.add(go.sortingLayer)
+    return out
+}
+
+/** Renders the tool palette used by the viewport toolbar. */
+fun toolIcon(tool: Tool): String = when (tool) {
+    Tool.SELECT -> "⬚"
+    Tool.MOVE -> "✥"
+    Tool.ROTATE -> "⟳"
+    Tool.SCALE -> "⤢"
+    Tool.HAND -> "✋"
+    Tool.RECT -> "▭"
+    Tool.CIRCLE -> "◯"
+    Tool.TILE_PAINT -> "▦"
+    Tool.TILE_ERASE -> "⌫"
+    Tool.TILE_FILL -> "🪣"
+    Tool.TILE_RECT -> "▩"
+    Tool.POLYGON -> "⬠"
+    Tool.SPAWN -> "★"
+    Tool.ZOOM -> "🔍"
 }

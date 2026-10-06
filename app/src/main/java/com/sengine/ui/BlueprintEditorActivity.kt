@@ -8,9 +8,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import android.app.AlertDialog
 import com.sengine.engine.blueprint.Blueprint
 import com.sengine.engine.blueprint.BlueprintCompiler
 import com.sengine.engine.blueprint.BlueprintNodes
@@ -19,7 +17,7 @@ import com.sengine.project.Project
 import com.sengine.project.ProjectManager
 
 /** Visual scripting editor: blueprints compile to JavaScript behaviours at play time. */
-class BlueprintEditorActivity : AppCompatActivity() {
+class BlueprintEditorActivity : android.app.Activity() {
     private lateinit var project: Project
     private lateinit var asset: String
     private lateinit var bp: Blueprint
@@ -31,14 +29,15 @@ class BlueprintEditorActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        project = ProjectManager.open(this, intent.getStringExtra("project")!!)
+        project = intent.getStringExtra("projectDir")?.let { Project(java.io.File(it)) }
+            ?: ProjectManager.open(this, intent.getStringExtra("project") ?: "")
         asset = intent.getStringExtra("asset")!!
         saved = project.readAsset(asset) ?: ""
         bp = try { Blueprint.parse(saved) } catch (e: Exception) { Blueprint.defaultGraph() }
 
         val root = vbox().apply { setBackgroundColor(C.BG) }
         val bar = hbox().apply { setBackgroundColor(C.HEADER); setPadding(dp(6), dp(4), dp(6), dp(4)) }
-        bar.addView(button("←") { onBackPressedDispatcher.onBackPressed() })
+        bar.addView(button("←") { onBackPressed() })
         bar.addView(button("☰ Nodes") { palette.visibility = if (palette.visibility == View.VISIBLE) View.GONE else View.VISIBLE }, lp(WRAP, WRAP).margins(dp(4), 0, 0, 0))
         title = label("Blueprint: $asset", 15f, C.TEXT, true).apply { setPadding(dp(10), 0, dp(10), 0); isSingleLine = true }
         bar.addView(title, lp(0, WRAP, 1f))
@@ -69,16 +68,16 @@ class BlueprintEditorActivity : AppCompatActivity() {
         root.addView(middle, lp(MATCH, 0, 1f))
         setContentView(root)
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (!dirty) { finish(); return }
-                MaterialAlertDialogBuilder(this@BlueprintEditorActivity)
-                    .setTitle("Unsaved changes").setMessage("Save $asset?")
-                    .setPositiveButton("Save") { _, _ -> save(); finish() }
-                    .setNegativeButton("Discard") { _, _ -> finish() }
-                    .setNeutralButton("Cancel", null).show()
-            }
-        })
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (!dirty) { super.onBackPressed(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Unsaved changes").setMessage("Save $asset?")
+            .setPositiveButton("Save") { _, _ -> save(); finish() }
+            .setNegativeButton("Discard") { _, _ -> finish() }
+            .setNeutralButton("Cancel", null).show()
     }
 
     private fun markDirty() { dirty = true; title.text = "Blueprint: $asset •" }
@@ -105,7 +104,7 @@ class BlueprintEditorActivity : AppCompatActivity() {
         val box = vbox().apply { setPadding(dp(20), dp(6), dp(20), 0) }
         box.addView(label(if (pd.str) "Text value" else "JavaScript expression — e.g. 5, self.x + 1, vars.score, input.axisX, other.name", 11f, C.DIM))
         box.addView(f, lp(MATCH, WRAP))
-        MaterialAlertDialogBuilder(this)
+        AlertDialog.Builder(this)
             .setTitle("${n.def?.title} • $name")
             .setView(box)
             .setPositiveButton("OK") { _, _ -> n.params[name] = f.text.toString(); markDirty(); view.invalidate() }
@@ -114,7 +113,7 @@ class BlueprintEditorActivity : AppCompatActivity() {
 
     private fun nodeMenu(n: BpNode) {
         val items = arrayOf("Duplicate", "Disconnect all", "Delete")
-        MaterialAlertDialogBuilder(this)
+        AlertDialog.Builder(this)
             .setTitle(n.def?.title ?: n.type)
             .setItems(items) { _, i ->
                 when (i) {
@@ -140,7 +139,7 @@ class BlueprintEditorActivity : AppCompatActivity() {
     private fun showCode() {
         val code = try { BlueprintCompiler.compile(bp) } catch (e: Exception) { "// error: ${e.message}" }
         val tv = label(code, 12f, 0xFFD4D4D4.toInt()).apply { typeface = Typeface.MONOSPACE; setPadding(dp(16), dp(10), dp(16), dp(10)); setTextIsSelectable(true) }
-        MaterialAlertDialogBuilder(this).setTitle("Generated JavaScript").setView(ScrollView(this).apply { addView(tv) })
+        AlertDialog.Builder(this).setTitle("Generated JavaScript").setView(ScrollView(this).apply { addView(tv) })
             .setPositiveButton("Close", null)
             .setNeutralButton("Export as .js") { _, _ ->
                 val n = project.uniqueAssetName(asset.removeSuffix(".bp") + "_generated.js")
@@ -164,7 +163,7 @@ Blueprints are visual scripts. Attach a .bp asset to a Script component just lik
 Variables: use Set Variable / Add To Variable, read them as vars.name.
 Events: On Collision / On Trigger provide 'other'; On Message provides 'arg'.
 """.trimIndent()
-        MaterialAlertDialogBuilder(this).setTitle("Blueprint help").setMessage(text).setPositiveButton("OK", null).show()
+        AlertDialog.Builder(this).setTitle("Blueprint help").setMessage(text).setPositiveButton("OK", null).show()
     }
 
     private fun save() {
@@ -172,6 +171,11 @@ Events: On Collision / On Trigger provide 'other'; On Message provides 'arg'.
         project.writeAsset(asset, json)
         saved = json; dirty = false
         title.text = "Blueprint: $asset"
-        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+        // validate that the graph still compiles, so a save can never break gameplay silently
+        val check = try { BlueprintCompiler.compile(bp); "" } catch (e: Exception) { e.message ?: "compile error" }
+        if (check.isBlank()) toast("Saved $asset") else toast("Saved with warnings: $check", long = true)
     }
+
+    private fun toast(message: String, long: Boolean = false) =
+        Toast.makeText(this, message, if (long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
 }

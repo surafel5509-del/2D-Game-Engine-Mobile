@@ -11,6 +11,8 @@ class Project(val dir: File) {
     val name: String get() = dir.name
     val assetsDir = File(dir, "assets")
     val scenesDir = File(dir, "scenes")
+    /** Save-game slots (scene snapshot + script variables) live here. */
+    val statesDir = File(dir, "saves")
     private val metaFile = File(dir, "project.json")
 
     var startScene = "Main"
@@ -39,6 +41,26 @@ class Project(val dir: File) {
         o.put("orientation", orientation)
         metaFile.writeText(o.toString(2))
     }
+
+    // ---------------------------------------------------------------- save slots
+    fun stateFile(n: String) = File(statesDir, "$n.state.json")
+
+    fun writeState(slot: String, json: String) {
+        statesDir.mkdirs()
+        stateFile(slot).writeText(json)
+    }
+
+    fun readState(slot: String): String? = stateFile(slot).takeIf { it.exists() }?.readText()
+
+    fun hasState(slot: String) = stateFile(slot).exists()
+
+    fun listStates(): List<String> =
+        (statesDir.listFiles() ?: emptyArray())
+            .filter { it.name.endsWith(".state.json") }
+            .map { it.name.removeSuffix(".state.json") }
+            .sorted()
+
+    fun deleteState(slot: String) = stateFile(slot).delete()
 
     fun sceneFile(n: String) = File(scenesDir, "$n.scene.json")
     fun sceneExists(n: String) = sceneFile(n).exists()

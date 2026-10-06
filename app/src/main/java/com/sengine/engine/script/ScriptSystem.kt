@@ -3,7 +3,6 @@ package com.sengine.engine.script
 import com.sengine.engine.Engine
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ScriptComponent
-import com.sengine.engine.physics.PhysicsWorld
 import org.mozilla.javascript.Context
 import org.mozilla.javascript.Function
 import org.mozilla.javascript.RhinoException
@@ -15,7 +14,7 @@ import org.mozilla.javascript.ScriptableObject
  * JavaScript behaviour runtime backed by Mozilla Rhino (interpreted mode).
  * Every Script component gets its own scope whose prototype is the shared global scope.
  */
-class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
+class ScriptSystem(val engine: Engine) {
 
     private class Instance(val go: GameObject, val comp: ScriptComponent, val scope: Scriptable) {
         var started = false
@@ -43,12 +42,20 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         ownerThread = Thread.currentThread()
         val g = c.initStandardObjects()
         global = g
-        inputApi.sync()
         put(g, "input", inputApi)
         put(g, "time", STime(engine))
         put(g, "scene", SScene(engine, this))
         put(g, "audio", SAudio(engine))
         put(g, "console", SConsole(engine))
+        put(g, "physics", SPhysics(engine, this))
+        put(g, "camera", SCamera(engine))
+        put(g, "ui", SUi(engine, this))
+        put(g, "particles", SParticles(engine, this))
+        put(g, "tasks", STasks(engine, this))
+        put(g, "random", SRandom())
+        put(g, "noise", SNoise())
+        put(g, "save", SSave(engine, this))
+        put(g, "engine", SEngineInfo(engine))
         c.evaluateString(g, PRELUDE, "prelude", 1, null)
         compiled.clear()
         for (go in engine.scene.objects.toList()) attach(go)
@@ -73,11 +80,6 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
     }
 
     fun wrap(go: GameObject): SObject = wrappers.getOrPut(go.id) { SObject(go, engine, this) }
-
-    fun toJs(go: GameObject?): Any? {
-        val g = global ?: return null
-        return if (go == null) null else Context.javaToJS(wrap(go), g)
-    }
 
     fun newArray(items: List<Any?>): Scriptable? {
         val c = cx ?: return null
@@ -157,12 +159,14 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
 
     fun update(dt: Float) {
         if (cx == null) return
-        inputApi.sync()
         startPending()
         val dtArg = dt.toDouble()
         val input = engine.input
         var tapTarget: GameObject? = null
-        if (input.tapped) tapTarget = engine.physics.overlapPoint(engine.scene, input.touchX, input.touchY)
+        if (input.tapped) {
+            tapTarget = engine.physics.overlapCircle(input.touchX, input.touchY, 0.35f)
+                .firstOrNull { it.go != null }?.go
+        }
         for (inst in instances.toList()) {
             if (inst.failed || !inst.started || inst.go.destroyed) continue
             if (!inst.go.isActiveInHierarchy() || !inst.comp.enabled) continue
@@ -218,16 +222,36 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         wrappers.remove(go.id)
     }
 
-    override fun onCollisionEnter(a: GameObject, b: GameObject) {
-        dispatch(a, "onCollision", b); dispatch(b, "onCollision", a)
+    /** Contact dispatch used by the engine's physics listener. */
+    fun collision(go: GameObject, other: GameObject, function: String) {
+        dispatch(go, function, other)
     }
 
-    override fun onTriggerEnter(a: GameObject, b: GameObject) {
-        dispatch(a, "onTrigger", b); dispatch(b, "onTrigger", a)
+    /** Calls a JS function passed into Kotlin (task callbacks, signal slots, UI dialogs). */
+    fun callFunction(fn: Function?, vararg args: Any?): Any? {
+        val c = cx ?: return null
+        val g = global ?: return null
+        if (fn == null) return null
+        return try {
+            fn.call(c, g, g, arrayOf<Any?>(*args))
+        } catch (e: RhinoException) {
+            engine.log(2, "script callback:${e.lineNumber()} ${e.details()}")
+            null
+        } catch (e: Exception) {
+            engine.log(2, "script callback: ${e.message}")
+            null
+        }
     }
 
-    override fun onTriggerExit(a: GameObject, b: GameObject) {
-        dispatch(a, "onTriggerExit", b); dispatch(b, "onTriggerExit", a)
+    /** Wraps a Kotlin/engine value so scripts can use it (null stays null). */
+    fun toJs(value: Any?): Any? {
+        val g = global ?: return value
+        return when (value) {
+            null -> null
+            is SObject -> Context.javaToJS(value, g)
+            is GameObject -> Context.javaToJS(wrap(value), g)
+            else -> Context.javaToJS(value, g)
+        }
     }
 
     companion object {
@@ -238,17 +262,31 @@ function error(m) { console.error(String(m)); }
 function random(a, b) { if (a === undefined) return Math.random(); return a + Math.random() * (b - a); }
 function randomInt(a, b) { return Math.floor(random(a, b + 1)); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 function lerp(a, b, t) { return a + (b - a) * t; }
-var __timers = [];
-function after(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: 0 }); }
-function every(sec, fn) { __timers.push({ t: time.time + sec, f: fn, every: sec }); }
-function __tick() {
-  var now = time.time;
-  for (var i = __timers.length - 1; i >= 0; i--) {
-    var tm = __timers[i];
-    if (now >= tm.t) { if (tm.every > 0) tm.t += tm.every; else __timers.splice(i, 1); tm.f(); }
-  }
-}
+function moveTowards(a, b, step) { var d = b - a; if (Math.abs(d) <= step) return b; return a + Math.sign(d) * step; }
+function sign(v) { return v < 0 ? -1 : (v > 0 ? 1 : 0); }
+function approach(cur, target, speed, dt) { return moveTowards(cur, target, speed * dt); }
+function deg2rad(d) { return d * Math.PI / 180; }
+function rad2deg(r) { return r * 180 / Math.PI; }
+function dist(ax, ay, bx, by) { var dx = bx - ax, dy = by - ay; return Math.sqrt(dx * dx + dy * dy); }
+function angleTo(ax, ay, bx, by) { return rad2deg(Math.atan2(by - ay, bx - ax)); }
+function smoothstep(t) { t = clamp01(t); return t * t * (3 - 2 * t); }
+function damp(current, target, smoothing, dt) { return lerp(current, target, 1 - Math.exp(-smoothing * dt)); }
+function chance(p) { return Math.random() < p; }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function repeat(n, fn) { for (var i = 0; i < n; i++) fn(i); }
+function println() { log.apply(null, arguments); }
+function find(name) { return scene.find(name); }
+function findByTag(tag) { return scene.findTag(tag); }
+function allByTag(tag) { return scene.findAllTag(tag); }
+function spawn(name, x, y) { return scene.instantiate(name, x, y); }
+function emit() { scene.emit.apply(scene, arguments); }
+function on() { scene.on.apply(scene, arguments); }
+function spawnParticles(preset, x, y) { return particles.play(preset, x, y, 2); }
+function after(sec, fn) { return tasks.after(sec, function () { try { fn(); } catch (e) { console.error(e); } }); }
+function every(sec, fn) { return tasks.every(sec, function () { try { fn(); } catch (e) { console.error(e); } }); }
+function sequence(list) { for (var i = 0; i < list.length; i++) list[i](); }
 """
     }
 }

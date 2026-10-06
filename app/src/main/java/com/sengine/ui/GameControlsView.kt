@@ -10,12 +10,21 @@ import com.sengine.engine.Input
 import kotlin.math.hypot
 import kotlin.math.min
 
-/** Virtual joystick (left) and A/B buttons (right). Touches elsewhere pass through. */
+/**
+ * On-screen game controls for touch devices: an analog joystick, A/B action buttons and an
+ * optional d-pad. Touches outside the controls fall through to the game, so a scene can mix
+ * virtual buttons with tap/swipe gameplay.
+ *
+ * Multi-touch aware: each control tracks its own pointer id, so the player can hold the joystick
+ * while tapping a button.
+ */
 class GameControlsView(context: Context, private val input: () -> Input?) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xCCFFFFFF.toInt(); textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
+        color = 0xCCFFFFFF.toInt()
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
     }
     private var joyPointer = -1
     private var aPointer = -1
@@ -23,9 +32,13 @@ class GameControlsView(context: Context, private val input: () -> Input?) : View
     private var knobX = 0f
     private var knobY = 0f
 
-    private val baseR get() = min(width, height) * 0.13f
-    private val joyCx get() = baseR * 1.6f
-    private val joyCy get() = height - baseR * 1.6f
+    /** Layout style: 0 = joystick + A/B, 1 = d-pad + A/B, 2 = racing (left/right + brake/gas). */
+    var style = 0
+    var controlsVisible = true
+
+    private val baseR get() = min(width, height) * 0.14f
+    private val joyCx get() = baseR * 1.7f
+    private val joyCy get() = height - baseR * 1.7f
     private val btnR get() = baseR * 0.55f
     private val aCx get() = width - btnR * 2.0f
     private val aCy get() = height - btnR * 2.4f
@@ -33,15 +46,14 @@ class GameControlsView(context: Context, private val input: () -> Input?) : View
     private val bCy get() = height - btnR * 1.4f
 
     override fun onDraw(canvas: Canvas) {
-        paint.style = Paint.Style.FILL
-        paint.color = 0x33FFFFFF
-        canvas.drawCircle(joyCx, joyCy, baseR, paint)
-        paint.color = if (joyPointer >= 0) 0xAAFFFFFF.toInt() else 0x77FFFFFF
-        val kx = if (joyPointer >= 0) knobX else joyCx
-        val ky = if (joyPointer >= 0) knobY else joyCy
-        canvas.drawCircle(kx, ky, baseR * 0.45f, paint)
-
+        if (!controlsVisible) return
+        when (style) {
+            1 -> drawDpad(canvas)
+            2 -> drawRacing(canvas)
+            else -> drawJoystick(canvas)
+        }
         text.textSize = btnR * 0.8f
+        paint.style = Paint.Style.FILL
         paint.color = if (aPointer >= 0) 0xCC57AB5A.toInt() else 0x6657AB5A
         canvas.drawCircle(aCx, aCy, btnR, paint)
         canvas.drawText("A", aCx, aCy + text.textSize * 0.35f, text)
@@ -50,10 +62,49 @@ class GameControlsView(context: Context, private val input: () -> Input?) : View
         canvas.drawText("B", bCx, bCy + text.textSize * 0.35f, text)
     }
 
+    private fun drawJoystick(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.color = 0x33FFFFFF
+        canvas.drawCircle(joyCx, joyCy, baseR, paint)
+        paint.color = if (joyPointer >= 0) 0xAAFFFFFF.toInt() else 0x77FFFFFF
+        val kx = if (joyPointer >= 0) knobX else joyCx
+        val ky = if (joyPointer >= 0) knobY else joyCy
+        canvas.drawCircle(kx, ky, baseR * 0.45f, paint)
+    }
+
+    private fun drawDpad(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.color = 0x33FFFFFF
+        val r = baseR * 0.7f
+        canvas.drawRect(joyCx - r * 0.35f, joyCy - r, joyCx + r * 0.35f, joyCy + r, paint)
+        canvas.drawRect(joyCx - r, joyCy - r * 0.35f, joyCx + r, joyCy + r * 0.35f, paint)
+        paint.color = 0x66FFFFFF
+        if (dpadX < -0.3f) canvas.drawRect(joyCx - r, joyCy - r * 0.35f, joyCx - r * 0.35f, joyCy + r * 0.35f, paint)
+        if (dpadX > 0.3f) canvas.drawRect(joyCx + r * 0.35f, joyCy - r * 0.35f, joyCx + r, joyCy + r * 0.35f, paint)
+        if (dpadY < -0.3f) canvas.drawRect(joyCx - r * 0.35f, joyCy + r * 0.35f, joyCx + r * 0.35f, joyCy + r, paint)
+        if (dpadY > 0.3f) canvas.drawRect(joyCx - r * 0.35f, joyCy - r, joyCx + r * 0.35f, joyCy - r * 0.35f, paint)
+    }
+
+    private fun drawRacing(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.color = 0x33FFFFFF
+        val r = baseR * 0.6f
+        // pedal look: brake on the left, throttle on the right
+        canvas.drawRoundRect(joyCx - r * 1.4f, joyCy - r, joyCx - r * 0.2f, joyCy + r, 8f, 8f, paint)
+        canvas.drawRoundRect(joyCx + r * 0.2f, joyCy - r, joyCx + r * 1.4f, joyCy + r, 8f, 8f, paint)
+        paint.color = 0x88E5534B.toInt()
+        if (dpadY < -0.3f) canvas.drawRoundRect(joyCx - r * 1.4f, joyCy - r, joyCx - r * 0.2f, joyCy + r, 8f, 8f, paint)
+        paint.color = 0x8857AB5A.toInt()
+        if (dpadY > 0.3f) canvas.drawRoundRect(joyCx + r * 0.2f, joyCy - r, joyCx + r * 1.4f, joyCy + r, 8f, 8f, paint)
+    }
+
+    private var dpadX = 0f
+    private var dpadY = 0f
+
     private fun hit(x: Float, y: Float): Int = when {
-        hypot(x - joyCx, y - joyCy) < baseR * 1.7f -> 1
-        hypot(x - aCx, y - aCy) < btnR * 1.3f -> 2
-        hypot(x - bCx, y - bCy) < btnR * 1.3f -> 3
+        hypot(x - joyCx, y - joyCy) < baseR * 1.8f -> 1
+        hypot(x - aCx, y - aCy) < btnR * 1.35f -> 2
+        hypot(x - bCx, y - bCy) < btnR * 1.35f -> 3
         else -> 0
     }
 
@@ -64,43 +115,71 @@ class GameControlsView(context: Context, private val input: () -> Input?) : View
                 val i = e.actionIndex
                 val id = e.getPointerId(i)
                 when (hit(e.getX(i), e.getY(i))) {
-                    1 -> if (joyPointer < 0) { joyPointer = id; updateJoy(e.getX(i), e.getY(i), inp) }
-                    2 -> if (aPointer < 0) { aPointer = id; inp.rawA = true }
-                    3 -> if (bPointer < 0) { bPointer = id; inp.rawB = true }
+                    1 -> if (joyPointer < 0) { joyPointer = id; updateJoy(e.getX(i), e.getY(i), inp, true) }
+                    2 -> if (aPointer < 0) { aPointer = id; inp.pressButtonA() }
+                    3 -> if (bPointer < 0) { bPointer = id; inp.pressButtonB() }
                     else -> if (e.actionMasked == MotionEvent.ACTION_DOWN) return false
                 }
             }
             MotionEvent.ACTION_MOVE -> {
                 if (joyPointer >= 0) {
                     val i = e.findPointerIndex(joyPointer)
-                    if (i >= 0) updateJoy(e.getX(i), e.getY(i), inp)
+                    if (i >= 0) updateJoy(e.getX(i), e.getY(i), inp, false)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 val all = e.actionMasked != MotionEvent.ACTION_POINTER_UP
                 val id = e.getPointerId(e.actionIndex)
-                if (all || id == joyPointer) { joyPointer = -1; inp.joyX = 0f; inp.joyY = 0f }
-                if (all || id == aPointer) { aPointer = -1; inp.rawA = false }
-                if (all || id == bPointer) { bPointer = -1; inp.rawB = false }
+                if (all || id == joyPointer) { joyPointer = -1; dpadX = 0f; dpadY = 0f; inp.setJoystick(0f, 0f, false) }
+                if (all || id == aPointer) { aPointer = -1; inp.releaseButtonA() }
+                if (all || id == bPointer) { bPointer = -1; inp.releaseButtonB() }
             }
         }
         invalidate()
         return true
     }
 
-    private fun updateJoy(x: Float, y: Float, inp: Input) {
+    private fun updateJoy(x: Float, y: Float, inp: Input, down: Boolean) {
         var dx = x - joyCx
         var dy = y - joyCy
         val d = hypot(dx, dy)
-        if (d > baseR) { dx = dx / d * baseR; dy = dy / d * baseR }
-        knobX = joyCx + dx; knobY = joyCy + dy
-        inp.joyX = dx / baseR
-        inp.joyY = -dy / baseR
+        if (d > baseR) {
+            dx = dx / d * baseR
+            dy = dy / d * baseR
+        }
+        knobX = joyCx + dx
+        knobY = joyCy + dy
+        val nx = dx / baseR
+        val ny = -dy / baseR
+        when (style) {
+            1 -> {
+                dpadX = if (nx > 0.35f) 1f else if (nx < -0.35f) -1f else 0f
+                dpadY = if (ny > 0.35f) 1f else if (ny < -0.35f) -1f else 0f
+                inp.setDpad(dpadX, dpadY)
+            }
+            2 -> {
+                dpadY = if (ny > 0.35f) 1f else if (ny < -0.35f) -1f else 0f
+                dpadX = if (nx > 0.35f) 1f else if (nx < -0.35f) -1f else 0f
+                inp.setDpad(dpadX, dpadY)
+                inp.setJoystick(dpadX, dpadY, down || joyPointer >= 0)
+            }
+            else -> inp.setJoystick(nx, ny, down || joyPointer >= 0)
+        }
     }
 
+    /** Releases every control (called when the activity pauses or the game ends). */
     fun reset() {
-        joyPointer = -1; aPointer = -1; bPointer = -1
-        input()?.let { it.joyX = 0f; it.joyY = 0f; it.rawA = false; it.rawB = false }
+        joyPointer = -1
+        aPointer = -1
+        bPointer = -1
+        dpadX = 0f
+        dpadY = 0f
+        input()?.let {
+            it.setJoystick(0f, 0f, false)
+            it.setDpad(0f, 0f)
+            it.releaseButtonA()
+            it.releaseButtonB()
+        }
         invalidate()
     }
 }

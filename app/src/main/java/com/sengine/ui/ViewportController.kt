@@ -1,299 +1,438 @@
 package com.sengine.ui
 
-import android.annotation.SuppressLint
+import android.content.Context
+import android.opengl.GLSurfaceView
 import android.view.MotionEvent
-import android.view.View
-import android.view.ViewConfiguration
+import android.view.ScaleGestureDetector
 import com.sengine.engine.Engine
-import com.sengine.engine.core.Camera2D
+import com.sengine.engine.core.Collider2D
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.SpriteRenderer
-import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.math.Rect2
 import com.sengine.engine.render.EditorState
+import com.sengine.engine.render.SceneRenderer
 import com.sengine.engine.render.Tool
+import com.sengine.engine.tilemap.TileLayer
+import com.sengine.engine.tilemap.TilemapRenderer
+import android.opengl.GLES20
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.hypot
 import kotlin.math.roundToInt
 
-/** Scene-view touch handling: pan, pinch-zoom, pick, and move/rotate/scale gizmos. */
+/**
+ * The 2D editor viewport: a GLSurfaceView that renders the scene (through [SceneRenderer]) and
+ * turns touch input into real editing operations - select, marquee, move/rotate/scale gizmos,
+ * pan, zoom, grid snapping, rect/circle creation and tilemap painting.
+ *
+ * One touch = tool action, two fingers = pan + pinch zoom (exactly like mobile 2D editors).
+ */
 class ViewportController(
-    private val act: EditorActivity,
+    context: Context,
     private val engine: Engine,
-    private val ed: EditorState,
-) : View.OnTouchListener {
+    private val state: EditorState,
+    private val callbacks: Callbacks
+) : GLSurfaceView(context) {
 
-    private enum class Op { NONE, PENDING, PAN, MOVE, ROTATE, SCALE, PINCH }
+    interface Callbacks {
+        fun onSelectionChanged(go: GameObject?)
+        fun onSceneEdited(commit: Boolean)
+        fun onContextMenu(go: GameObject?, worldX: Float, worldY: Float)
+        fun onStatus(text: String)
+    }
 
-    val c3 = Viewport3DController(act, engine, ed)
-    var snap = false
-        set(value) { field = value; c3.snap = value }
-    private var op = Op.NONE
-    private val slop = ViewConfiguration.get(act).scaledTouchSlop.toFloat()
-    private var downX = 0f
-    private var downY = 0f
+    var renderer2d: SceneRenderer? = null
+        private set
+    private var dragging = false
+    private var draggingGizmo = -1 // 0 = body, 1 = X, 2 = Y, 3 = rotate, 4 = scale
+    private var draggingObject: GameObject? = null
+    private var startWorldX = 0f
+    private var startWorldY = 0f
+    private var grabOffsetX = 0f
+    private var grabOffsetY = 0f
+    private var startRotation = 0f
+    private var startScaleX = 1f
+    private var startScaleY = 1f
+    private var startAngleToPointer = 0f
+    private var startDistance = 1f
+    private var panning = false
+    private var panX = 0f
+    private var panY = 0f
     private var lastX = 0f
     private var lastY = 0f
-    private var picked: GameObject? = null
-    private var target: GameObject? = null
+    private var moved = false
+    private var tapStart = 0L
+    private var multiTouch = false
 
-    // op start state
-    private var startWX = 0f
-    private var startWY = 0f
-    private var objWX = 0f
-    private var objWY = 0f
-    private var startRot = 0f
-    private var startSX = 1f
-    private var startSY = 1f
-    private var startAngle = 0f
+    /** Grid size the tile brush snaps to (world units). */
+    var brushTile = 0
+    var brushRadius = 0
 
-    // pinch
-    private var pinchDist = 0f
-    private var pinchSize = 5f
-    private var pinchWX = 0f
-    private var pinchWY = 0f
+    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val factor = 1f / detector.scaleFactor
+            state.view.size = (state.view.size * factor).coerceIn(0.25f, 80f)
+            return true
+        }
+    })
 
-    private val view get() = ed.view
+    init {
+        setEGLContextClientVersion(2)
+        preserveEGLContextOnPause = true
+        setRenderer(object : GLSurfaceView.Renderer {
+            override fun onSurfaceCreated(gl: javax.microedition.khronos.opengles.GL10?, config: javax.microedition.khronos.egl.EGLConfig?) {
+                val r = renderer2d ?: SceneRenderer.forEngine(engine, state).also { renderer2d = it }
+                r.editor = state
+                r.uiSystem = engine.ui
+                r.initGl()
+            }
 
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouch(v: View, e: MotionEvent): Boolean {
-        if (engine.mode != Engine.Mode.EDIT) { forwardToGame(e); return true }
-        if (ed.mode3D) { c3.onTouch(e); return true }
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> onDown(e.x, e.y)
-            MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2) startPinch(e)
-            MotionEvent.ACTION_MOVE -> onMove(e)
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (op == Op.PINCH) {
-                    // continue panning with the remaining finger
-                    val keep = if (e.actionIndex == 0) 1 else 0
-                    lastX = e.getX(keep); lastY = e.getY(keep)
-                    op = Op.PAN
+            override fun onSurfaceChanged(gl: javax.microedition.khronos.opengles.GL10?, width: Int, height: Int) {
+                GLES20.glViewport(0, 0, width, height)
+                state.view.widthPx = width
+                state.view.heightPx = height
+                renderer2d?.resize(width, height)
+            }
+
+            override fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
+                val r = renderer2d ?: return
+                val dt = engine.frameDelta()
+                synchronized(engine.lock) {
+                    engine.tick(dt)
+                    val view = state.view
+                    view.cx = (state.view.cx + panX)
+                    view.cy = (state.view.cy + panY)
+                    engine.updateGameView()
+                    r.render(engine.scene, dt, engine.backgroundColor(), drawUi = true)
+                    engine.drawCalls = r.renderer.stats.drawCalls
+                    engine.renderMs = r.renderer.frameMilliseconds
+                }
+                panX = 0f
+                panY = 0f
+            }
+        })
+        renderMode = RENDERMODE_CONTINUOUSLY
+    }
+
+    /**
+     * Captures the viewport into a bitmap on the GL thread (editor "screenshot" command and
+     * asset previews).
+     */
+    fun screenshot(onReady: (android.graphics.Bitmap) -> Unit) {
+        queueEvent {
+            val w = width.coerceAtLeast(1)
+            val h = height.coerceAtLeast(1)
+            val buffer = java.nio.ByteBuffer.allocateDirect(w * h * 4).order(java.nio.ByteOrder.nativeOrder())
+            GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer)
+            val pixels = IntArray(w * h)
+            buffer.asIntBuffer().get(pixels)
+            for (y in 0 until h / 2) {
+                val top = y * w
+                val bottom = (h - 1 - y) * w
+                for (x in 0 until w) {
+                    val t = pixels[top + x]
+                    pixels[top + x] = pixels[bottom + x]
+                    pixels[bottom + x] = t
                 }
             }
-            MotionEvent.ACTION_UP -> onUp(e.x, e.y)
-            MotionEvent.ACTION_CANCEL -> { op = Op.NONE; ed.activeAxis = 0 }
+            val bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+            bmp.setPixels(pixels, 0, w, 0, 0, w, h)
+            post { onReady(bmp) }
+        }
+    }
+
+    // ---------------------------------------------------------------- touch
+    @Suppress("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        scaleDetector.onTouchEvent(e)
+        val vx = e.x
+        val vy = e.y
+        val wx = screenToWorldX(vx)
+        val wy = screenToWorldY(vy)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                moved = false
+                multiTouch = false
+                tapStart = System.currentTimeMillis()
+                lastX = vx; lastY = vy
+                startWorldX = wx; startWorldY = wy
+                val hit = hitTest(wx, wy)
+                draggingGizmo = gizmoAt(vx, vy, hit)
+                if (state.tool == Tool.HAND) {
+                    panning = true
+                } else if (hit != null) {
+                    if (!state.isSelected(hit.id) && state.tool != Tool.TILE_PAINT) {
+                        val keepMulti = false
+                        callbacks.onSelectionChanged(hit)
+                        state.select(hit.id)
+                        callbacks.onSceneEdited(false)
+                    }
+                    draggingObject = hit
+                    grabOffsetX = wx - hit.x
+                    grabOffsetY = wy - hit.y
+                    startRotation = hit.rotation
+                    startScaleX = hit.scaleX
+                    startScaleY = hit.scaleY
+                    startAngleToPointer = Math.toDegrees(
+                        kotlin.math.atan2((wy - hit.y).toDouble(), (wx - hit.x).toDouble())
+                    ).toFloat()
+                    startDistance = kotlin.math.hypot((wx - hit.x).toDouble(), (wy - hit.y).toDouble()).toFloat()
+                    dragging = draggingGizmo == 0 || state.tool == Tool.MOVE || state.tool == Tool.ROTATE || state.tool == Tool.SCALE
+                } else {
+                    when (state.tool) {
+                        Tool.RECT, Tool.CIRCLE, Tool.POLYGON, Tool.SPAWN -> createAt(wx, wy)
+                        Tool.TILE_PAINT, Tool.TILE_ERASE, Tool.TILE_FILL, Tool.TILE_RECT -> paintAt(wx, wy)
+                        else -> {
+                            state.marqueeActive = true
+                            state.marqueeX0 = wx; state.marqueeY0 = wy
+                            state.marqueeX1 = wx; state.marqueeY1 = wy
+                        }
+                    }
+                }
+                val np = e.pointerCount
+                if (np >= 2) {
+                    panning = true
+                    multiTouch = true
+                    state.marqueeActive = false
+                }
+                requestRender()
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                panning = true
+                multiTouch = true
+                state.marqueeActive = false
+                panX += 0f
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = vx - lastX
+                val dy = vy - lastY
+                lastX = vx; lastY = vy
+                if (abs(dx) + abs(dy) > dp(6)) moved = true
+                when {
+                    e.pointerCount >= 2 || panning && state.tool == Tool.HAND -> {
+                        // two-finger pan in world units, respecting the view scale
+                        val ppu = state.view.pixelsPerUnit
+                        panX -= dx / ppu
+                        panY += dy / ppu
+                    }
+                    draggingGizmo == 3 -> rotateTo(wx, wy)
+                    draggingGizmo == 4 -> scaleTo(wx, wy)
+                    dragging && draggingObject != null -> moveSelected(wx, wy)
+                    state.marqueeActive -> {
+                        state.marqueeX1 = wx; state.marqueeY1 = wy
+                    }
+                    state.tool == Tool.TILE_PAINT || state.tool == Tool.TILE_ERASE -> paintAt(wx, wy)
+                    else -> Unit
+                }
+                callbacks.onStatus("x=${fmt(wx)}  y=${fmt(wy)}  zoom=${fmt(1f / state.view.size)}")
+                requestRender()
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (state.marqueeActive) {
+                    selectInMarquee()
+                    state.marqueeActive = false
+                }
+                if (dragging || draggingGizmo >= 0) callbacks.onSceneEdited(true)
+                val quickTap = !moved && System.currentTimeMillis() - tapStart < 260
+                if (quickTap && !multiTouch && state.tool == Tool.SELECT && hitTest(wx, wy) == null) {
+                    state.clearSelection()
+                    callbacks.onSelectionChanged(null)
+                }
+                if (quickTap && e.pointerCount == 1 && engine.mode == Engine.Mode.EDIT) {
+                    val hit = hitTest(wx, wy)
+                    if (hit != null && state.tool == Tool.SELECT) callbacks.onSelectionChanged(hit)
+                }
+                dragging = false
+                draggingGizmo = -1
+                draggingObject = null
+                panning = false
+                multiTouch = false
+                requestRender()
+            }
         }
         return true
     }
 
-    private fun forwardToGame(e: MotionEvent) {
-        val inp = engine.input
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { inp.rawTouching = true; inp.rawTouchSX = e.x; inp.rawTouchSY = e.y; inp.tapPending = true }
-            MotionEvent.ACTION_MOVE -> { inp.rawTouchSX = e.x; inp.rawTouchSY = e.y }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> inp.rawTouching = false
-        }
+    fun longPress(x: Float, y: Float) {
+        val wx = screenToWorldX(x)
+        val wy = screenToWorldY(y)
+        callbacks.onContextMenu(hitTest(wx, wy), wx, wy)
     }
 
-    private fun wx(sx: Float) = view.screenToWorldX(sx)
-    private fun wy(sy: Float) = view.screenToWorldY(sy)
+    // ---------------------------------------------------------------- coordinate helpers
+    fun screenToWorldX(px: Float): Float = state.view.screenToWorldX(px)
 
-    private fun onDown(x: Float, y: Float) {
-        downX = x; downY = y; lastX = x; lastY = y
-        op = Op.PENDING
-        target = null
-        val wx = wx(x)
-        val wy = wy(y)
-        synchronized(engine.lock) {
-            val sel = engine.scene.findById(ed.selectedId)
-            picked = pick(wx, wy)
-            if (sel != null && ed.tool != Tool.HAND) {
-                val axis = gizmoHit(sel, wx, wy)
-                if (axis != 0) {
-                    beginOp(sel, axis, wx, wy)
-                    return
-                }
-            }
-        }
-    }
+    fun screenToWorldY(py: Float): Float = state.view.screenToWorldY(py)
 
-    private fun beginOp(go: GameObject, axis: Int, wx: Float, wy: Float) {
-        act.history.record(ed.selectedId)
-        target = go
-        ed.activeAxis = axis
-        startWX = wx; startWY = wy
-        val w = go.computeWorld()
-        objWX = w.tx; objWY = w.ty
-        startRot = go.rotation
-        startSX = go.scaleX; startSY = go.scaleY
-        startAngle = Math.toDegrees(atan2((wy - objWY).toDouble(), (wx - objWX).toDouble())).toFloat()
-        op = when (ed.tool) {
-            Tool.MOVE -> Op.MOVE
-            Tool.ROTATE -> Op.ROTATE
-            Tool.SCALE -> Op.SCALE
-            Tool.HAND -> Op.PAN
-        }
-    }
-
-    private fun onMove(e: MotionEvent) {
-        if (op == Op.PINCH && e.pointerCount >= 2) { updatePinch(e); return }
-        val x = e.x
-        val y = e.y
-        if (op == Op.PENDING) {
-            if (hypot(x - downX, y - downY) < slop) return
-            val p = picked
-            if (ed.tool == Tool.MOVE && p != null) {
-                // drag the object under the finger (select it first)
-                if (p.id != ed.selectedId) act.select(p.id)
-                synchronized(engine.lock) { beginOp(p, 3, wx(downX), wy(downY)) }
-            } else op = Op.PAN
-        }
-        when (op) {
-            Op.PAN -> {
-                val ppu = view.pixelsPerUnit
-                view.cx -= (x - lastX) / ppu
-                view.cy += (y - lastY) / ppu
-            }
-            Op.MOVE, Op.ROTATE, Op.SCALE -> synchronized(engine.lock) { applyOp(wx(x), wy(y)) }
-            else -> {}
-        }
-        lastX = x; lastY = y
-    }
-
-    private fun applyOp(wx: Float, wy: Float) {
-        val go = target ?: return
-        val dx = wx - startWX
-        val dy = wy - startWY
-        when (op) {
-            Op.MOVE -> {
-                var nx = objWX + if (ed.activeAxis == 2) 0f else dx
-                var ny = objWY + if (ed.activeAxis == 1) 0f else dy
-                if (snap) { nx = snapTo(nx, 0.25f); ny = snapTo(ny, 0.25f) }
-                go.setWorldPosition(nx, ny)
-            }
-            Op.ROTATE -> {
-                val a = Math.toDegrees(atan2((wy - objWY).toDouble(), (wx - objWX).toDouble())).toFloat()
-                var r = startRot + (a - startAngle)
-                if (snap) r = snapTo(r, 15f)
-                go.rotation = normalizeAngle(r)
-            }
-            Op.SCALE -> {
-                val len = ed.gizmoLength()
-                when (ed.activeAxis) {
-                    1 -> go.scaleX = scaled(startSX, 1f + dx / len)
-                    2 -> go.scaleY = scaled(startSY, 1f + dy / len)
-                    else -> {
-                        val f = 1f + (dx + dy) / (2f * len)
-                        go.scaleX = scaled(startSX, f); go.scaleY = scaled(startSY, f)
-                    }
-                }
-            }
-            else -> {}
-        }
-    }
-
-    private fun scaled(start: Float, f: Float): Float {
-        var v = start * f.coerceAtLeast(0.01f)
-        if (snap) v = snapTo(v, 0.1f).coerceAtLeast(0.1f)
-        return v
-    }
-
-    private fun normalizeAngle(a: Float): Float {
-        var r = a % 360f
-        if (r > 180f) r -= 360f
-        if (r < -180f) r += 360f
-        return r
-    }
-
-    private fun snapTo(v: Float, step: Float) = (v / step).roundToInt() * step
-
-    private fun onUp(x: Float, y: Float) {
-        if (op == Op.PENDING && hypot(x - downX, y - downY) < slop) {
-            act.select(picked?.id ?: -1L)
-        } else if (op == Op.MOVE || op == Op.ROTATE || op == Op.SCALE) {
-            act.onObjectEdited()
-        }
-        op = Op.NONE
-        ed.activeAxis = 0
-    }
-
-    private fun startPinch(e: MotionEvent) {
-        if (op == Op.MOVE || op == Op.ROTATE || op == Op.SCALE) return
-        op = Op.PINCH
-        pinchDist = hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1)).coerceAtLeast(1f)
-        pinchSize = view.size
-        val mx = (e.getX(0) + e.getX(1)) / 2f
-        val my = (e.getY(0) + e.getY(1)) / 2f
-        pinchWX = wx(mx); pinchWY = wy(my)
-    }
-
-    private fun updatePinch(e: MotionEvent) {
-        val d = hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1)).coerceAtLeast(1f)
-        view.size = (pinchSize * pinchDist / d).coerceIn(0.2f, 500f)
-        val mx = (e.getX(0) + e.getX(1)) / 2f
-        val my = (e.getY(0) + e.getY(1)) / 2f
-        // keep the world point that started under the fingers under the fingers
-        view.cx = pinchWX - (mx / view.widthPx * 2f - 1f) * view.halfW
-        view.cy = pinchWY - (1f - my / view.heightPx * 2f) * view.size
-    }
-
-    // ------------------------------------------------------------------ picking
-    fun pick(wx: Float, wy: Float): GameObject? {
-        val list = engine.scene.objects.withIndex()
-            .filter { it.value.isActiveInHierarchy() }
-            .sortedWith(compareBy({ -it.value.order }, { -it.index }))
-        val ppu = view.pixelsPerUnit
-        for ((_, go) in list) {
-            val w = go.world
-            val hasSprite = go.get<SpriteRenderer>() != null
-            val text = go.get<TextRenderer>()
-            if (hasSprite || text != null) {
-                val inv = w.inverted() ?: continue
-                val lx = inv.mapX(wx, wy)
-                val ly = inv.mapY(wx, wy)
-                var hw = 0.5f
-                var hh = 0.5f
-                if (!hasSprite && text != null) {
-                    val lines = text.text.split('\n')
-                    hh = text.size * lines.size / 2f
-                    hw = (lines.maxOfOrNull { it.length } ?: 1) * text.size * 0.3f
-                    val off = when (text.align) { 0 -> hw; 2 -> -hw; else -> 0f }
-                    if (abs(lx - off) <= hw && abs(ly) <= hh) return go
-                    continue
-                }
-                if (abs(lx) <= hw && abs(ly) <= hh) return go
-            } else {
-                val r = (if (go.get<Camera2D>() != null) 18f else 12f) / ppu
-                if (hypot(wx - w.tx, wy - w.ty) <= r) return go
-            }
+    /** Object under the touch (box test against sprite/collider bounds, topmost first). */
+    fun hitTest(wx: Float, wy: Float): GameObject? {
+        val objects = engine.scene.renderOrder()
+        for (i in objects.indices.reversed()) {
+            val go = objects[i]
+            if (go.destroyed || !go.active) continue
+            val w = go.computeWorld()
+            val sprite = go.components.firstOrNull { it is SpriteRenderer } as? SpriteRenderer
+            val col = go.components.firstOrNull { it is Collider2D } as? Collider2D
+            val hw: Float
+            val hh: Float
+            if (sprite != null) {
+                hw = abs(sprite.width * go.scaleX) * 0.5f
+                hh = abs(sprite.height * go.scaleY) * 0.5f
+            } else if (col != null) {
+                val he = col.worldHalfExtents()
+                hw = he[0]; hh = he[1]
+            } else continue
+            val local = worldToLocal(w.tx, w.ty, w.rotationDeg, wx, wy)
+            if (abs(local[0]) <= hw && abs(local[1]) <= hh) return go
         }
         return null
     }
 
-    /** 0 none, 1 x-axis, 2 y-axis, 3 free/centre. */
-    private fun gizmoHit(go: GameObject, wx: Float, wy: Float): Int {
-        val w = go.computeWorld()
-        val x = w.tx
-        val y = w.ty
-        val len = ed.gizmoLength()
-        val tol = 26f / view.pixelsPerUnit * (view.heightPx / 1080f).coerceAtLeast(0.6f)
-        return when (ed.tool) {
-            Tool.MOVE -> when {
-                hypot(wx - (x + len * 0.18f), wy - (y + len * 0.18f)) < tol * 1.2f -> 3
-                abs(wy - y) < tol && wx > x + len * 0.3f && wx < x + len + tol * 1.5f -> 1
-                abs(wx - x) < tol && wy > y + len * 0.3f && wy < y + len + tol * 1.5f -> 2
-                else -> 0
-            }
-            Tool.ROTATE -> {
-                val d = hypot(wx - x, wy - y)
-                if (abs(d - len) < tol * 1.3f) 3 else 0
-            }
-            Tool.SCALE -> when {
-                hypot(wx - (x + len), wy - y) < tol * 1.4f -> 1
-                hypot(wx - x, wy - (y + len)) < tol * 1.4f -> 2
-                hypot(wx - x, wy - y) < tol * 1.4f -> 3
-                else -> 0
-            }
-            Tool.HAND -> 0
-        }
+    private fun worldToLocal(cx: Float, cy: Float, rotDeg: Float, x: Float, y: Float): FloatArray {
+        val rad = Math.toRadians((-rotDeg).toDouble())
+        val c = kotlin.math.cos(rad).toFloat()
+        val s = kotlin.math.sin(rad).toFloat()
+        val dx = x - cx
+        val dy = y - cy
+        return floatArrayOf(dx * c - dy * s, dx * s + dy * c)
     }
 
-    fun frame(go: GameObject?) {
-        if (ed.mode3D) { synchronized(engine.lock) { c3.frame(go) }; return }
-        if (go == null) { view.cx = 0f; view.cy = 0f; view.size = 6f; return }
-        val w = go.computeWorld()
-        view.cx = w.tx; view.cy = w.ty
-        view.size = (maxOf(w.scaleX, w.scaleY) * 1.5f).coerceIn(2f, 50f)
+    private fun gizmoAt(vx: Float, vy: Float, hit: GameObject?): Int {
+        if (state.tool == Tool.SELECT || state.tool == Tool.HAND) return 0
+        val go = hit ?: return -1
+        if (!state.isSelected(go.id)) return 0
+        val g = go.computeWorld()
+        val glyph = state.gizmoLength()
+        val hx = state.view.worldToScreenX(g.tx + glyph)
+        val hy = state.view.worldToScreenY(g.ty)
+        val vxAxis = state.view.worldToScreenX(g.tx)
+        val vyAxis = state.view.worldToScreenY(g.ty + glyph)
+        if (hypotF(vx - hx, vy - hy) < dp(24)) return 1
+        if (hypotF(vx - vxAxis, vy - vyAxis) < dp(24)) return 2
+        val scaleX = state.view.worldToScreenX(g.tx + glyph * 0.7f)
+        val scaleY = state.view.worldToScreenY(g.ty - glyph * 0.7f)
+        if (hypotF(vx - scaleX, vy - scaleY) < dp(24)) return 4
+        return 0
+    }
+
+    private fun hypotF(dx: Float, dy: Float) = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).roundToInt()
+
+    // ---------------------------------------------------------------- editing operations
+    private fun moveSelected(wx: Float, wy: Float) {
+        val go = draggingObject ?: return
+        var nx = wx - grabOffsetX
+        var ny = wy - grabOffsetY
+        if (state.snapToGrid) {
+            val snapped = state.snap(nx, ny)
+            nx = snapped[0]; ny = snapped[1]
+        }
+        if (state.activeAxis == 1) ny = go.y
+        if (state.activeAxis == 2) nx = go.x
+        if (go.parent == null) {
+            go.x = nx; go.y = ny
+        } else {
+            go.setWorldPosition(nx, ny)
+        }
+        callbacks.onSceneEdited(false)
+    }
+
+    private fun rotateTo(wx: Float, wy: Float) {
+        val go = draggingObject ?: return
+        val angle = Math.toDegrees(kotlin.math.atan2((wy - go.y).toDouble(), (wx - go.x).toDouble())).toFloat()
+        val delta = angle - startAngleToPointer
+        go.rotation = state.snapAngle(startRotation + delta)
+        callbacks.onSceneEdited(false)
+    }
+
+    private fun scaleTo(wx: Float, wy: Float) {
+        val go = draggingObject ?: return
+        val d = kotlin.math.hypot((wx - go.x).toDouble(), (wy - go.y).toDouble()).toFloat()
+        val factor = if (startDistance > 0.001f) (d / startDistance).coerceIn(0.02f, 50f) else 1f
+        go.scaleX = startScaleX * factor
+        go.scaleY = startScaleY * factor
+        callbacks.onSceneEdited(false)
+    }
+
+    private fun selectInMarquee() {
+        val r = Rect2(
+            minOf(state.marqueeX0, state.marqueeX1),
+            minOf(state.marqueeY0, state.marqueeY1),
+            abs(state.marqueeX1 - state.marqueeX0),
+            abs(state.marqueeY1 - state.marqueeY0)
+        )
+        val ids = ArrayList<Long>()
+        for (go in engine.scene.objects) {
+            if (go.destroyed || !go.active) continue
+            val sprite = go.components.firstOrNull { it is SpriteRenderer } as? SpriteRenderer
+            val hw = (sprite?.width ?: 1f) * abs(go.scaleX) * 0.5f
+            val hh = (sprite?.height ?: 1f) * abs(go.scaleY) * 0.5f
+            val w = go.computeWorld()
+            if (w.tx + hw >= r.x && w.tx - hw <= r.right && w.ty + hh >= r.y && w.ty - hh <= r.bottom) ids.add(go.id)
+        }
+        state.selectMany(ids.toLongArray())
+        callbacks.onSelectionChanged(ids.firstOrNull()?.let { engine.scene.findById(it) })
+    }
+
+    private fun createAt(wx: Float, wy: Float) {
+        val p = if (state.snapToGrid) state.snap(wx, wy) else floatArrayOf(wx, wy)
+        val name = when (state.tool) {
+            Tool.RECT -> "Box"; Tool.CIRCLE -> "Circle"; Tool.POLYGON -> "Polygon"; Tool.SPAWN -> "Spawn"; else -> "Object"
+        }
+        val go = engine.scene.create(engine.scene.uniqueName(name), state.selectedId.let { engine.scene.findById(it) })
+        go.x = p[0]; go.y = p[1]
+        val sprite = SpriteRenderer()
+        when (state.tool) {
+            Tool.RECT -> { sprite.shape = SpriteRenderer.SHAPE_SQUARE; sprite.width = 1f; sprite.height = 1f }
+            Tool.CIRCLE -> { sprite.shape = SpriteRenderer.SHAPE_CIRCLE; sprite.width = 1f; sprite.height = 1f }
+            Tool.POLYGON -> { sprite.shape = SpriteRenderer.SHAPE_TRIANGLE; sprite.width = 1f; sprite.height = 1f }
+            else -> { sprite.shape = SpriteRenderer.SHAPE_SQUARE; sprite.color = 0x5533FF88; sprite.width = 0.6f; sprite.height = 0.6f }
+        }
+        go.add(sprite)
+        state.select(go.id)
+        callbacks.onSelectionChanged(go)
+        callbacks.onSceneEdited(true)
+        requestRender()
+    }
+
+    private fun paintAt(wx: Float, wy: Float) {
+        val tilemapGo = engine.scene.objects.firstOrNull { it.getAny<TilemapRenderer>() != null } ?: return
+        val tm = tilemapGo.getAny<TilemapRenderer>() ?: return
+        val data = tm.data ?: return
+        val layer: TileLayer = data.layers.getOrNull(state.brushLayer) ?: return
+        val w = tilemapGo.computeWorld()
+        val local = worldToLocal(w.tx, w.ty, w.rotationDeg, wx, wy)
+        val tileW = data.worldSizeOfTile().coerceAtLeast(0.001f)
+        val tx = kotlin.math.floor(local[0] / tileW).toInt()
+        val ty = kotlin.math.floor(local[1] / tileW).toInt()
+        val radius = if (state.brushSize > 1) state.brushSize / 2 else 0
+        val value = if (state.tool == Tool.TILE_ERASE) 0 else state.brushTile
+        for (ox in -radius..radius) for (oy in -radius..radius) {
+            layer.set(tx + ox, ty + oy, value)
+        }
+        tm.runAutoTileIfEnabled()
+        callbacks.onSceneEdited(false)
+        requestRender()
+    }
+
+    /** Pans the view so the given object is centred (used by "Focus" / double-tap F). */
+    fun focus(go: GameObject?) {
+        val target = go ?: return
+        val w = target.computeWorld()
+        state.view.cx = w.tx
+        state.view.cy = w.ty
+        requestRender()
+    }
+
+    fun zoomBy(factor: Float) {
+        state.view.size = (state.view.size / factor).coerceIn(0.25f, 80f)
+        requestRender()
+    }
+
+    fun resetZoom() {
+        state.view.size = 5f
+        requestRender()
     }
 }

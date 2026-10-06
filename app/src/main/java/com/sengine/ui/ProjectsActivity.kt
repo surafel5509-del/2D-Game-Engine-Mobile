@@ -1,173 +1,156 @@
 package com.sengine.ui
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
 import android.view.Gravity
-import android.widget.EditText
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.sengine.engine.core.AssetKind
+import android.widget.ListView
+import android.widget.TextView
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
 import com.sengine.project.Templates
-import java.text.DateFormat
-import java.util.Date
 
-class ProjectsActivity : AppCompatActivity() {
+/**
+ * Project hub: create from a template, open the editor, play, duplicate, rename, delete, export a
+ * project zip and import one. Includes a live thumbnail drawn from the project's first scene.
+ */
+class ProjectsActivity : Activity() {
 
-    private lateinit var list: LinearLayout
-    private var exporting: Project? = null
-
-    private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        val p = exporting ?: return@registerForActivityResult
-        if (uri != null) try {
-            contentResolver.openOutputStream(uri)?.use { ProjectManager.exportZip(p, it) }
-            toast("Exported ${p.name}")
-        } catch (e: Exception) {
-            toast("Export failed: ${e.message}")
-        }
-        exporting = null
-    }
-
-    private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importProject(uri)
+    private lateinit var list: ListView
+    private var projects: List<Project> = emptyList()
+    private val adapter = object : BaseAdapter() {
+        override fun getCount() = projects.size
+        override fun getItem(position: Int): Any = projects[position]
+        override fun getItemId(position: Int) = position.toLong()
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View =
+            row(projects[position], convertView)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Exported game: go straight to the player.
-        com.sengine.export.GameRuntime.standaloneProject(this)?.let { game ->
-            startActivity(Intent(this, PlayerActivity::class.java).putExtra("projectDir", game.dir.absolutePath).putExtra("standalone", true))
-            finish()
-            return
-        }
         val root = vbox().apply { setBackgroundColor(C.BG) }
 
         val header = hbox().apply {
-            setPadding(dp(20), dp(18), dp(20), dp(12))
             setBackgroundColor(C.HEADER)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
-        val titleBox = vbox()
-        titleBox.addView(label("S Engine", 28f, C.TEXT, true))
-        titleBox.addView(label("2D & 3D game engine & editor for Android  •  Ultimate v2.0", 13f, C.DIM))
-        header.addView(titleBox, lp(0, WRAP, 1f))
-        header.addView(button("Import") { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
-            lp(WRAP, WRAP).margins(0, 0, dp(8), 0))
-        header.addView(button("+ New Project", C.ACCENT, 0xFFFFFFFF.toInt()) { newProjectDialog() })
+        header.addView(label("S ENGINE", 18f, C.TEXT, bold = true))
+        header.addView(label("  2D game engine", 12f, C.DIM))
+        header.addView(spacer())
+        header.addView(button("＋ New project", C.ACCENT, 0xFFFFFFFF.toInt()) { newProjectDialog() })
+        header.addView(button("⇩ Import .zip") { importZip() }.apply {
+            layoutParams = lp(WRAP, WRAP).margins(dp(8), 0, 0, 0)
+        })
         root.addView(header, lp(MATCH, WRAP))
 
-        root.addView(label("PROJECTS", 12f, C.DIM, true).apply { setPadding(dp(20), dp(14), dp(20), dp(6)) })
-        list = vbox().apply { setPadding(dp(14), 0, dp(14), dp(20)) }
-        root.addView(ScrollView(this).apply { addView(list) }, lp(MATCH, 0, 1f))
-        setContentView(root)
-
-        val prefs = getSharedPreferences("sengine", MODE_PRIVATE)
-        if (!prefs.getBoolean("seeded", false)) {
-            prefs.edit().putBoolean("seeded", true).apply()
-            if (ProjectManager.list(this).isEmpty()) {
-                ProjectManager.create(this, "Platformer Demo", Templates.all[1])
-                ProjectManager.create(this, "Space Shooter", Templates.all[2])
-            }
+        list = ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            adapter = this@ProjectsActivity.adapter
+            setBackgroundColor(C.BG)
         }
+        root.addView(list, lp(MATCH, 0, 1f))
+
+        val footer = hbox().apply {
+            setBackgroundColor(C.HEADER)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        footer.addView(label("Tap a project to open it · long-press for more actions", 11f, C.DIM))
+        root.addView(footer, lp(MATCH, WRAP))
+        setContentView(root)
+        refresh()
     }
 
     override fun onResume() {
         super.onResume()
         refresh()
-        runTestAutomation()
-    }
-
-    /**
-     * Debug-build automation used by CI's emulator smoke test:
-     *   adb shell am start -n com.sengine.app/com.sengine.ui.ProjectsActivity --es sengine_test open|open3d|play|build [--es project NAME]
-     */
-    private fun runTestAutomation() {
-        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
-        val action = intent.getStringExtra("sengine_test") ?: return
-        intent.removeExtra("sengine_test")
-        val name = intent.getStringExtra("project") ?: ProjectManager.list(this).firstOrNull()?.name ?: return
-        if (!ProjectManager.exists(this, name)) {
-            val t = Templates.all.firstOrNull { it.name == name } ?: Templates.all.last()
-            ProjectManager.create(this, name, t)
-        }
-        when (action) {
-            "open" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name))
-            "open3d" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name).putExtra("mode3d", true))
-            "play" -> startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", name))
-            "build" -> startActivity(Intent(this, BuildActivity::class.java).putExtra("project", name).putExtra("autobuild", true).putExtra("output", "test_game.apk"))
-            "store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", name))
-            "anim" -> startActivity(Intent(this, AnimationEditorActivity::class.java).putExtra("project", name))
-            "blueprint" -> {
-                val p = ProjectManager.open(this, name)
-                val bp = p.listAssets(com.sengine.engine.core.AssetKind.SCRIPT).firstOrNull { it.endsWith(".bp") }
-                    ?: "Test.bp".also { p.writeAsset(it, com.sengine.engine.blueprint.Blueprint.defaultGraph().toJson().toString(2)) }
-                startActivity(Intent(this, BlueprintEditorActivity::class.java).putExtra("project", name).putExtra("asset", bp))
-            }
-        }
     }
 
     private fun refresh() {
-        list.removeAllViews()
-        val projects = ProjectManager.list(this)
+        projects = ProjectManager.list(this)
+        adapter.notifyDataSetChanged()
         if (projects.isEmpty()) {
-            list.addView(label("No projects yet.\nTap “+ New Project” to create your first game.", 15f, C.DIM).apply {
-                gravity = Gravity.CENTER; setPadding(0, dp(60), 0, 0)
-            }, lp(MATCH, WRAP))
+            toast("No projects yet - tap New project to start from a template")
         }
-        for (p in projects) list.addView(card(p), lp(MATCH, WRAP).margins(0, dp(5), 0, dp(5)))
     }
 
-    private fun card(p: Project): LinearLayout {
-        val card = hbox().apply {
-            background = round(C.PANEL, dp(10).toFloat())
-            setPadding(dp(16), dp(12), dp(10), dp(12))
+    private fun row(p: Project, convertView: View?): View {
+        val box = (convertView as? LinearLayout) ?: hbox().apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            minimumHeight = dp(76)
         }
-        val icon = label(p.name.take(1).uppercase(), 22f, 0xFFFFFFFF.toInt(), true).apply {
-            gravity = Gravity.CENTER
-            background = round(colorFor(p.name), dp(10).toFloat())
+        box.removeAllViews()
+        box.setBackgroundColor(C.BG)
+
+        val thumb = (box.getChildAt(0) as? ImageView) ?: ImageView(this).apply {
+            layoutParams = lp(dp(84), dp(56))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(C.PANEL)
         }
-        card.addView(icon, lp(dp(48), dp(48)).margins(0, 0, dp(14), 0))
-        val info = vbox()
-        info.addView(label(p.name, 17f, C.TEXT, true))
-        val scenes = p.listScenes().size
-        val scripts = p.listAssets(AssetKind.SCRIPT).size
-        val assets = p.listAssets().size
-        val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(p.dir.lastModified()))
-        info.addView(label("$scenes scene(s) • $scripts script(s) • $assets asset(s)\nModified $date", 12f, C.DIM))
-        card.addView(info, lp(0, WRAP, 1f))
-        card.addView(button("▶") { play(p) }, lp(WRAP, WRAP).margins(dp(4), 0, dp(4), 0))
-        card.addView(button("Open", C.ACCENT, 0xFFFFFFFF.toInt()) { open(p) }, lp(WRAP, WRAP).margins(dp(4), 0, dp(4), 0))
-        val more = button("⋮") { v ->
-            val pm = PopupMenu(this, v)
-            pm.menu.add("Rename"); pm.menu.add("Duplicate"); pm.menu.add("Export .zip"); pm.menu.add("Delete")
-            pm.setOnMenuItemClickListener {
-                when (it.title) {
-                    "Rename" -> renameDialog(p)
-                    "Duplicate" -> { ProjectManager.duplicate(this, p); refresh() }
-                    "Export .zip" -> { exporting = p; exportLauncher.launch("${p.name}.zip") }
-                    "Delete" -> confirmDelete(p)
+        (thumb.background as? android.graphics.drawable.GradientDrawable)?.cornerRadius = dp(6).toFloat()
+        thumb.setImageBitmap(thumbnail(p))
+        if (thumb.parent == null) box.addView(thumb)
+
+        val info = vbox().apply {
+            layoutParams = lp(0, WRAP, 1f).margins(dp(12), 0, dp(8), 0)
+        }
+        val sceneCount = p.listScenes().size
+        val assetCount = (p.assetsDir.listFiles()?.size ?: 0)
+        info.addView(label(p.name, 15f, C.TEXT, bold = true))
+        info.addView(label("$sceneCount scenes · $assetCount assets · orientation ${if (p.orientation == 1) "portrait" else "landscape"}", 11.5f, C.DIM))
+        info.addView(label("start: ${p.startScene}", 11f, C.DIM))
+        box.addView(info)
+
+        box.addView(button("▶ Play", C.GREEN, 0xFFFFFFFF.toInt()) { play(p) })
+        box.addView(button("Open") { open(p) }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(6), 0, 0, 0) })
+        box.addView(button("⋯", C.PANEL2) { menu(p) }.apply { layoutParams = lp(dp(40), WRAP).margins(dp(6), 0, 0, 0) })
+
+        box.setOnClickListener { open(p) }
+        box.setOnLongClickListener { menu(p); true }
+        return box
+    }
+
+    /** Cheap thumbnail: draws the project's first scene layout (objects as coloured blocks). */
+    private fun thumbnail(p: Project): Bitmap {
+        val bmp = Bitmap.createBitmap(dp(84).coerceAtLeast(48), dp(56).coerceAtLeast(32), Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = 0xFF1B2027.toInt()
+        canvas.drawRect(0f, 0f, bmp.width.toFloat(), bmp.height.toFloat(), paint)
+        runCatching {
+            val scene = p.loadScene(p.startScene)
+            val bounds = scene.contentBounds()
+            val w = bounds.w.coerceAtLeast(1f)
+            val h = bounds.h.coerceAtLeast(1f)
+            val scale = minOf(bmp.width / w, bmp.height / h) * 0.8f
+            for (go in scene.objects.take(60)) {
+                val sprite = go.components.firstOrNull { it is com.sengine.engine.core.SpriteRenderer }
+                    as? com.sengine.engine.core.SpriteRenderer ?: continue
+                val x = (go.x - bounds.centerX) * scale + bmp.width * 0.5f
+                val y = bmp.height * 0.5f - (go.y - bounds.centerY) * scale
+                paint.color = sprite.color
+                val sw = (sprite.width * scale).coerceAtLeast(2f)
+                val sh = (sprite.height * scale).coerceAtLeast(2f)
+                if (sprite.shape == com.sengine.engine.core.SpriteRenderer.SHAPE_CIRCLE) {
+                    canvas.drawCircle(x, y, sw * 0.5f, paint)
+                } else {
+                    canvas.drawRect(x - sw * 0.5f, y - sh * 0.5f, x + sw * 0.5f, y + sh * 0.5f, paint)
                 }
-                true
             }
-            pm.show()
         }
-        card.addView(more)
-        card.setOnClickListener { open(p) }
-        return card
-    }
-
-    private fun colorFor(s: String): Int {
-        val palette = intArrayOf(0xFF4C8DFF.toInt(), 0xFFE5534B.toInt(), 0xFF57AB5A.toInt(), 0xFFE0B341.toInt(), 0xFFAB47BC.toInt(), 0xFF26A69A.toInt())
-        return palette[Math.abs(s.hashCode()) % palette.size]
+        return bmp
     }
 
     private fun open(p: Project) {
@@ -178,78 +161,109 @@ class ProjectsActivity : AppCompatActivity() {
         startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", p.name))
     }
 
-    private fun newProjectDialog() {
-        val box = vbox().apply { setPadding(dp(20), dp(8), dp(20), 0) }
-        val name = field("My Game")
-        box.addView(label("Project name", 12f, C.DIM))
-        box.addView(name, lp(MATCH, WRAP).margins(0, dp(4), 0, dp(12)))
-        box.addView(label("Template", 12f, C.DIM))
-        val group = RadioGroup(this)
-        Templates.all.forEachIndexed { i, t ->
-            group.addView(RadioButton(this).apply {
-                id = 1000 + i
-                text = "${t.name}\n${t.description}"
-                setTextColor(C.TEXT)
-                textSize = 13f
-                setPadding(dp(4), dp(6), 0, dp(6))
-            })
-        }
-        group.check(1000)
-        box.addView(group)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("New Project")
-            .setView(ScrollView(this).apply { addView(box) })
-            .setPositiveButton("Create") { _, _ ->
-                val n = ProjectManager.sanitize(name.text.toString())
-                when {
-                    n.isBlank() -> toast("Invalid name")
-                    ProjectManager.exists(this, n) -> toast("A project named \"$n\" already exists")
-                    else -> {
-                        val p = ProjectManager.create(this, n, Templates.all[group.checkedRadioButtonId - 1000])
-                        open(p)
+    private fun menu(p: Project) {
+        val actions = arrayOf("Open in editor", "Play", "Rename", "Duplicate", "Export .zip", "Delete")
+        AlertDialog.Builder(this)
+            .setTitle(p.name)
+            .setItems(actions) { _, which ->
+                when (which) {
+                    0 -> open(p)
+                    1 -> play(p)
+                    2 -> inputDialog("Rename project", p.name) { name ->
+                        val clean = ProjectManager.sanitize(name)
+                        if (clean.isBlank()) return@inputDialog toast("Invalid name")
+                        val renamed = ProjectManager.rename(this, p, clean)
+                        if (renamed == null) toast("A project with that name already exists") else refresh()
+                    }
+                    3 -> { ProjectManager.duplicate(this, p); refresh(); toast("Duplicated") }
+                    4 -> exportZip(p)
+                    5 -> confirmDialog("Delete ${p.name}?", "This permanently removes the project and its assets.") {
+                        ProjectManager.delete(p)
+                        refresh()
+                        toast("Deleted")
                     }
                 }
             }
-            .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun renameDialog(p: Project) {
-        val f: EditText = field(p.name)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Rename project")
-            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
-            .setPositiveButton("Rename") { _, _ ->
-                val n = ProjectManager.sanitize(f.text.toString())
-                if (n.isBlank() || ProjectManager.rename(this, p, n) == null) toast("Could not rename")
+    private fun newProjectDialog() {
+        val names = Templates.all.map { it.name }
+        val box = vbox().apply { setPadding(dp(14), dp(6), dp(14), 0) }
+        box.addView(label("Project name", 12f, C.DIM))
+        val nameField = field("My Game")
+        box.addView(nameField)
+        box.addView(label("Template", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
+        var templateIndex = 0
+        box.addView(choice(names, 0) { templateIndex = it })
+        box.addView(label(Templates.all.firstOrNull()?.description ?: "", 11f, C.DIM).apply {
+            setPadding(0, dp(8), 0, 0)
+        })
+        val templateInfo = box.getChildAt(box.childCount - 1) as TextView
+        (box.getChildAt(3) as android.widget.Spinner).onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    templateInfo.text = Templates.all[position].description
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        AlertDialog.Builder(this)
+            .setTitle("New project")
+            .setView(box)
+            .setPositiveButton("Create") { _, _ ->
+                val raw = nameField.text.toString()
+                val name = ProjectManager.sanitize(raw)
+                if (name.isBlank()) { toast("Enter a project name"); return@setPositiveButton }
+                if (ProjectManager.exists(this, name)) { toast("Project already exists"); return@setPositiveButton }
+                val project = ProjectManager.create(this, name, Templates.all[templateIndex])
                 refresh()
+                open(project)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun confirmDelete(p: Project) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Delete ${p.name}?")
-            .setMessage("This permanently deletes all scenes, scripts and assets of this project.")
-            .setPositiveButton("Delete") { _, _ -> ProjectManager.delete(p); refresh() }
-            .setNegativeButton("Cancel", null)
-            .show()
+    private fun importZip() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_IMPORT)
     }
 
-    private fun importProject(uri: Uri) {
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_IMPORT || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
         try {
-            var display = "Imported"
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                if (it.moveToFirst()) display = it.getString(0).substringBeforeLast('.')
+            val project = contentResolver.openInputStream(uri)?.use { input ->
+                ProjectManager.importZip(this, input, "Imported Game")
             }
-            val p = contentResolver.openInputStream(uri)!!.use { ProjectManager.importZip(this, it, display) }
-            toast("Imported ${p.name}")
-            refresh()
+            if (project == null) toast("Import failed") else { refresh(); toast("Imported ${project.name}") }
         } catch (e: Exception) {
             toast("Import failed: ${e.message}")
         }
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+    private fun exportZip(p: Project) {
+        try {
+            val out = java.io.File(cacheDir, "${p.name}.zip")
+            out.outputStream().use { ProjectManager.exportZip(p, it) }
+            val uri = ShareProvider.uriFor(this, out)
+            if (uri == null) { toast("Export failed"); return }
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Export project"))
+        } catch (e: Exception) {
+            toast("Export failed: ${e.message}")
+        }
+    }
+
+    companion object {
+        private const val REQ_IMPORT = 41
+    }
 }

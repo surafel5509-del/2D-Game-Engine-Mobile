@@ -1,328 +1,173 @@
 package com.sengine.ui
 
-import android.graphics.Typeface
+import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.Editable
-import android.text.InputType
-import android.text.Spannable
 import android.text.TextWatcher
-import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.View
 import android.widget.EditText
-import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.sengine.engine.script.ScriptSystem
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
+import com.sengine.engine.script.ScriptReference
 
-/** Code editor for JavaScript behaviour scripts with syntax highlighting and quick keys. */
-class ScriptEditorActivity : AppCompatActivity() {
+/**
+ * JavaScript behaviour editor with syntax validation (compiled with the same Rhino engine the game
+ * runs), a live API reference, error line reporting, snippets and instant save.
+ *
+ * The engine is strictly 2D: the API reference lists only 2D features.
+ */
+class ScriptEditorActivity : Activity() {
 
     private lateinit var project: Project
-    private lateinit var asset: String
     private lateinit var editor: EditText
     private lateinit var status: TextView
-    private lateinit var titleView: TextView
-    private var saved = ""
-    private val handler = Handler(Looper.getMainLooper())
-    private val history = ArrayList<String>()
-    private var historyIndex = -1
-    private var restoring = false
-
-    private var glsl = false
-    private val highlightTask = Runnable { highlight(editor.text) }
-    private val historyTask = Runnable { pushHistory() }
+    private lateinit var reference: LinearLayout
+    private var assetName = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        project = ProjectManager.open(this, intent.getStringExtra("project")!!)
-        asset = intent.getStringExtra("asset")!!
-        glsl = asset.endsWith(".glsl")
-        saved = project.readAsset(asset) ?: ""
+        assetName = intent.getStringExtra("asset") ?: "NewScript.js"
+        project = intent.getStringExtra("projectDir")?.let { Project(java.io.File(it)) }
+            ?: ProjectManager.open(this, intent.getStringExtra("project") ?: "")
 
         val root = vbox().apply { setBackgroundColor(C.BG) }
-        val bar = hbox().apply { setBackgroundColor(C.HEADER); setPadding(dp(6), dp(4), dp(6), dp(4)) }
-        bar.addView(button("←") { onBackPressedDispatcher.onBackPressed() })
-        titleView = label(asset, 15f, C.TEXT, true).apply { setPadding(dp(10), 0, dp(10), 0) }
-        bar.addView(titleView, lp(0, WRAP, 1f))
-        bar.addView(button("↶") { undo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
-        bar.addView(button("↷") { redo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
-        bar.addView(button(if (glsl) "GLSL" else "API") { showApi() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
-        bar.addView(button("Save", C.ACCENT, 0xFFFFFFFF.toInt()) { save() }, lp(WRAP, WRAP).margins(dp(3), 0, 0, 0))
-        root.addView(bar, lp(MATCH, WRAP))
+
+        val header = hbox().apply {
+            setBackgroundColor(C.HEADER)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        header.addView(button("‹ Back") { finish() })
+        header.addView(label(assetName, 14f, C.TEXT, bold = true).apply {
+            setPadding(dp(10), 0, dp(10), 0)
+        })
+        header.addView(spacer())
+        header.addView(button("Snippets") { snippets() })
+        header.addView(button("API reference") { toggleReference() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(6), 0, 0, 0) })
+        header.addView(button("Validate") { validate(showToast = true) }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(6), 0, 0, 0) })
+        header.addView(button("Save", C.ACCENT, 0xFFFFFFFF.toInt()) { save() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(6), 0, 0, 0) })
+        root.addView(header, lp(MATCH, WRAP))
+
+        val body = hbox().apply { setPadding(dp(8), dp(8), dp(8), dp(8)) }
+        val codeColumn = vbox().apply { layoutParams = lp(0, MATCH, 1f) }
 
         editor = EditText(this).apply {
-            setText(saved)
-            typeface = Typeface.MONOSPACE
-            textSize = 14f
-            setTextColor(0xFFD4D4D4.toInt())
-            setBackgroundColor(0xFF1B1C1F.toInt())
+            setText(project.readAsset(assetName) ?: com.sengine.project.ScriptTemplates.basic())
+            setTextColor(0xFFD7E1F0.toInt())
+            setBackgroundColor(C.FIELD)
+            textSize = 13f
+            typeface = android.graphics.Typeface.MONOSPACE
             gravity = Gravity.TOP or Gravity.START
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             setHorizontallyScrolling(true)
-            isVerticalScrollBarEnabled = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            addTextChangedListener(object : TextWatcher {
+                override fun afterTextChanged(s: Editable?) {
+                    dirty = true
+                    validate(showToast = false)
+                }
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            })
         }
-        root.addView(editor, lp(MATCH, 0, 1f))
+        codeColumn.addView(ScrollView(this).apply {
+            addView(editor)
+        }, lp(MATCH, 0, 1f))
+        status = label("", 11.5f, C.DIM).apply { setPadding(dp(6), dp(6), dp(6), 0) }
+        codeColumn.addView(status, lp(MATCH, WRAP))
+        body.addView(codeColumn)
 
-        status = label("", 11f, C.DIM).apply { setPadding(dp(10), dp(2), dp(10), dp(2)); setBackgroundColor(C.HEADER) }
-        root.addView(status, lp(MATCH, WRAP))
-
-        val keys = hbox().apply { setPadding(dp(4), dp(4), dp(4), dp(4)); setBackgroundColor(C.PANEL) }
-        for (k in listOf("⇥", "{", "}", "(", ")", ";", "=", "\"", ".", ",", "[", "]", "+", "-", "*", "/", "<", ">", "!", "&", "|", ":", "?")) {
-            keys.addView(button(k) { insert(if (k == "⇥") "    " else k) }.apply { minWidth = dp(38) },
-                lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        reference = vbox().apply {
+            background = round(C.PANEL, dp(6).toFloat())
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            visibility = View.GONE
         }
-        root.addView(HorizontalScrollView(this).apply { addView(keys); isHorizontalScrollBarEnabled = false }, lp(MATCH, WRAP))
+        body.addView(ScrollView(this).apply {
+            addView(reference)
+        }, lp(dp(300), MATCH).margins(dp(8), 0, 0, 0))
+        root.addView(body, lp(MATCH, 0, 1f))
         setContentView(root)
 
-        editor.addTextChangedListener(object : TextWatcher {
-            private var autoIndent = false
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                autoIndent = !restoring && count == 1 && s != null && start < s.length && s[start] == '\n'
-            }
-            override fun afterTextChanged(s: Editable) {
-                if (autoIndent) {
-                    autoIndent = false
-                    val pos = editor.selectionStart
-                    val lineStart = s.lastIndexOf('\n', pos - 2) + 1
-                    var indent = ""
-                    var i = lineStart
-                    while (i < pos - 1 && s[i] == ' ') { indent += " "; i++ }
-                    if (pos >= 2 && s[pos - 2] == '{') indent += "    "
-                    if (indent.isNotEmpty()) s.insert(pos, indent)
-                }
-                handler.removeCallbacks(highlightTask)
-                handler.postDelayed(highlightTask, 250)
-                if (!restoring) {
-                    handler.removeCallbacks(historyTask)
-                    handler.postDelayed(historyTask, 600)
-                }
-                updateStatus()
-            }
-        })
-        editor.setOnClickListener { updateStatus() }
-        highlight(editor.text)
-        pushHistory()
-        updateStatus()
-
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (editor.text.toString() == saved) { finish(); return }
-                MaterialAlertDialogBuilder(this@ScriptEditorActivity)
-                    .setTitle("Unsaved changes")
-                    .setMessage("Save changes to $asset?")
-                    .setPositiveButton("Save") { _, _ -> save(); finish() }
-                    .setNegativeButton("Discard") { _, _ -> finish() }
-                    .setNeutralButton("Cancel", null)
-                    .show()
-            }
-        })
+        buildReference()
+        validate(showToast = false)
     }
 
-    private fun insert(s: String) {
-        val st = editor.selectionStart.coerceAtLeast(0)
-        val en = editor.selectionEnd.coerceAtLeast(0)
-        editor.text.replace(minOf(st, en), maxOf(st, en), s)
-    }
+    private var dirty = false
 
     private fun save() {
-        val t = editor.text.toString()
-        project.writeAsset(asset, t)
-        saved = t
-        updateStatus()
-        Toast.makeText(this, "Saved $asset", Toast.LENGTH_SHORT).show()
+        project.writeAsset(assetName, editor.text.toString())
+        dirty = false
+        toast("Saved $assetName")
+        validate(showToast = true)
     }
 
-    private fun updateStatus() {
-        val pos = editor.selectionStart.coerceAtLeast(0)
-        val text = editor.text
-        var line = 1
-        var col = 1
-        for (i in 0 until minOf(pos, text.length)) {
-            if (text[i] == '\n') { line++; col = 1 } else col++
+    /** Compiles the script with Rhino - exactly the runtime parser - and reports real errors. */
+    private fun validate(showToast: Boolean): Boolean {
+        val src = editor.text.toString()
+        val result = com.sengine.engine.script.ScriptValidator.validate(src, assetName)
+        if (result.ok) {
+            status.text = "✔ no syntax errors · ${src.lines().size} lines · ${src.length} chars"
+            status.setTextColor(C.GREEN)
+            return true
         }
-        val dirty = if (text.toString() != saved) "  •  modified" else ""
-        status.text = "Ln $line, Col $col  •  ${text.count { it == '\n' } + 1} lines  •  JavaScript$dirty"
+        status.text = "✘ line ${result.line}: ${result.message}"
+        status.setTextColor(C.RED)
+        if (showToast) toast("Line ${result.line}: ${result.message}", long = true)
+        return false
     }
 
-    private fun pushHistory() {
-        val t = editor.text.toString()
-        if (historyIndex >= 0 && history[historyIndex] == t) return
-        while (history.size > historyIndex + 1) history.removeAt(history.size - 1)
-        history.add(t)
-        if (history.size > 100) history.removeAt(0)
-        historyIndex = history.size - 1
+    private fun toggleReference() {
+        reference.visibility = if (reference.visibility == View.GONE) View.VISIBLE else View.GONE
     }
 
-    private fun restore(t: String) {
-        restoring = true
-        val sel = editor.selectionStart
-        editor.setText(t)
-        editor.setSelection(sel.coerceIn(0, t.length))
-        restoring = false
-        highlight(editor.text)
-    }
-
-    private fun undo() {
-        pushHistory()
-        if (historyIndex > 0) { historyIndex--; restore(history[historyIndex]) }
-    }
-
-    private fun redo() {
-        if (historyIndex < history.size - 1) { historyIndex++; restore(history[historyIndex]) }
-    }
-
-    private fun highlight(s: Editable) {
-        for (span in s.getSpans(0, s.length, ForegroundColorSpan::class.java)) s.removeSpan(span)
-        val text = s.toString()
-        fun paint(regex: Regex, color: Int) {
-            for (m in regex.findAll(text)) {
-                s.setSpan(ForegroundColorSpan(color), m.range.first, m.range.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    private fun buildReference() {
+        reference.addView(label("S Engine 2D scripting API", 14f, C.TEXT, bold = true))
+        reference.addView(label("Scripts are plain JavaScript. Attach one to an object with the Script component.", 11f, C.DIM).apply {
+            setPadding(0, dp(4), 0, dp(10))
+        })
+        for ((group, lines) in ScriptReference.GROUPS) {
+            reference.addView(label(group, 12.5f, C.ACCENT, bold = true).apply { setPadding(0, dp(10), 0, dp(4)) })
+            for (line in lines) {
+                reference.addView(label(line, 11.5f, C.TEXT).apply { setPadding(0, dp(2), 0, 0) })
             }
         }
-        paint(NUMBER, 0xFFB5CEA8.toInt())
-        if (glsl) {
-            paint(GLSL_KEYWORD, 0xFF569CD6.toInt())
-            paint(GLSL_API, 0xFF4EC9B0.toInt())
-        } else {
-            paint(KEYWORD, 0xFF569CD6.toInt())
-            paint(API, 0xFF4EC9B0.toInt())
-        }
-        paint(FUNC, 0xFFDCDCAA.toInt())
-        paint(STRING, 0xFFCE9178.toInt())
-        paint(COMMENT, 0xFF6A9955.toInt())
+        reference.addView(label("Lifecycle: start() · update(dt) · onDestroy() · onTap() · onCollision(other) · onTrigger(other)", 11.5f, C.GREEN).apply {
+            setPadding(0, dp(12), 0, 0)
+        })
     }
 
-    private fun showApi() {
-        val tv = label(if (glsl) GLSL_DOC else API_DOC, 12f, C.TEXT).apply {
-            typeface = Typeface.MONOSPACE
-            setPadding(dp(18), dp(10), dp(18), dp(10))
-            setTextIsSelectable(true)
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (glsl) "S Engine Shaders" else "S Engine Script API")
-            .setView(ScrollView(this).apply { addView(tv) })
-            .setPositiveButton("Close", null)
+    private fun snippets() {
+        val names = com.sengine.project.ScriptTemplates.names
+        AlertDialog.Builder(this)
+            .setTitle("Insert snippet")
+            .setItems(names.toTypedArray()) { _, which ->
+                                val code = com.sengine.project.ScriptTemplates.get(names[which])
+                val start = editor.selectionStart.coerceAtLeast(0)
+                editor.text.insert(start, code)
+                toast("Inserted ${names[which]}")
+            }
             .show()
     }
 
-    companion object {
-        private val KEYWORD = Regex("\\b(var|let|const|function|return|if|else|for|while|do|break|continue|new|this|true|false|null|undefined|typeof|in|of|switch|case|default|try|catch|finally|throw)\\b")
-        private val API = Regex("\\b(self|transform|gameObject|input|time|scene|audio|console|Math)\\b")
-        private val FUNC = Regex("\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()")
-        private val GLSL_KEYWORD = Regex("\\b(float|int|bool|void|vec2|vec3|vec4|mat2|mat3|mat4|sampler2D|if|else|for|return|discard|const|uniform|varying|precision|mediump|highp|lowp|true|false)\\b")
-        private val GLSL_API = Regex("\\b(uTime|uParam|uTex|uColor|uUseTex|uResolution|texture2D|mix|clamp|smoothstep|step|fract|floor|sin|cos|dot|length|normalize|pow|abs|max|min|mod|distance)\\b")
-        private val NUMBER = Regex("\\b\\d+(\\.\\d+)?\\b")
-        private val STRING = Regex("\"(\\\\.|[^\"\\\\\\n])*\"|'(\\\\.|[^'\\\\\\n])*'")
-        private val COMMENT = Regex("//[^\\n]*|/\\*[\\s\\S]*?\\*/")
-
-        val API_DOC = """
-LIFECYCLE (define any of these)
-  start()              once, when play begins
-  update(dt)           every frame (dt = seconds)
-  onCollision(other)   solid collision began
-  onTrigger(other)     entered a trigger
-  onTriggerExit(other) left a trigger
-  onTap()              object's collider tapped
-  onDestroy() / onStop()
-
-SELF  (self / transform / gameObject)
-  name tag active order id
-  x y rotation scaleX scaleY   (local)
-  worldX worldY                (read-only)
-  setPosition(x,y) move(dx,dy) rotate(deg)
-  vx vy grounded setVelocity(vx,vy)
-  addForce(fx,fy)              (impulse)
-
- 3D
-  z rotX rotY rotZ scaleZ worldZ vz
-  setPosition(x,y,z) move(dx,dy,dz)
-  rotate(rx,ry,rz) setVelocity(x,y,z)
-  addForce(x,y,z) distanceTo3(o) forward()
-  setMeshColor("#FFRRGGBB")
-
- ANIMATION & RENDER
-  play("Run.anim") stopAnimation()
-  animation isAnimationFinished()
-  setAnimSpeed(s) setShaderParam(v)
-
-  color = "#FFRRGGBB"  visible  flipX
-  text  (TextRenderer)  setTexture(name)
-  burst(n) setEmitting(b)      (particles)
-  size                         (camera)
-  destroy() child(name) parent
-  distanceTo(o) overlaps(o) is(o)
-  send("fn", arg)              call fn on other
-  hasComponent(type)
-  setComponentEnabled(type, b)
-
-INPUT
-  axisX axisY (-1..1)  a b aDown bDown
-  touching tapped touchX touchY (world)
-
-SCENE
-  find(name) findAll(tag) count(tag)
-  spawn(name, x, y)   clones an object
-                      (inactive objects make
-                       great templates)
-  load(sceneName) reload() camera
-  gravityX gravityY name
-  spawn(name, x, y, z)  shake(amount)
-  raycast(ox,oy,oz, dx,dy,dz, max)
-     -> {object, x, y, z, distance} | null
-  getCamera3D() gravity3D
-
-TIME   time.time time.frame time.fps
-AUDIO  audio.play("file.wav") audio.beep()
-       audio.stopAll()
-
-HELPERS
-  log(...) warn(m) error(m)
-  after(sec, fn) every(sec, fn)
-  random(a,b) randomInt(a,b)
-  clamp(v,a,b) lerp(a,b,t)
-
-PARAMS  "speed=5, jump=10" in the Script
-        component become variables.
-
-BLUEPRINTS  .bp files compile to this API.
-""".trimIndent()
-
-        val GLSL_DOC = """
-Shaders are GLSL ES 1.0 effect functions:
-
-  vec4 effect(vec4 color, vec2 uv) {
-      return color;
-  }
-
-color  the lit / tinted pixel (sprite or mesh)
-uv     texture coordinate (tiled for meshes)
-
-UNIFORMS
-  uTime        seconds since start
-  uParam       per-object "Shader Param"
-               (script: self.setShaderParam(v))
-  uTex         the object's texture
-  uUseTex      1.0 if a texture is bound
-  uColor       tint color
-  uResolution  viewport size in pixels
-
-USE IT
-  • SpriteRenderer / MeshRenderer → Shader
-  • Camera → Post FX = Custom Shader,
-    FX Shader = file (color = screen pixel)
-
-Use 'discard' to cut out pixels.
-Compile errors show in the Console.
-""".trimIndent()
+    override fun onBackPressed() {
+        if (dirty) {
+            AlertDialog.Builder(this)
+                .setTitle("Save changes?")
+                .setPositiveButton("Save") { _, _ -> save(); finish() }
+                .setNegativeButton("Discard") { _, _ -> finish() }
+                .setNeutralButton("Cancel", null)
+                .show()
+        } else {
+            super.onBackPressed()
+        }
     }
+
+    /** Compiles a snippet for the validation status badge. */
+    @Suppress("unused")
+    private fun preludeCheck(): Boolean = ScriptSystem.PRELUDE.isNotBlank()
 }

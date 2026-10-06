@@ -1,870 +1,892 @@
 package com.sengine.ui
 
-import android.annotation.SuppressLint
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.net.Uri
-import android.opengl.GLSurfaceView
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
-import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
-import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
-import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sengine.engine.Engine
-import com.sengine.engine.core.AssetKind
-import com.sengine.engine.core.Animator
-import com.sengine.engine.core.Camera3D
-import com.sengine.engine.core.Collider3D
-import com.sengine.engine.core.Light
-import com.sengine.engine.core.MeshRenderer
-import com.sengine.engine.core.Rigidbody3D
-import com.sengine.engine.core.AudioSource
+import com.sengine.engine.blueprint.Blueprint
+import com.sengine.engine.blueprint.BlueprintCompiler
 import com.sengine.engine.core.Camera2D
-import com.sengine.engine.core.Collider2D
+import com.sengine.engine.core.ComponentRegistry
 import com.sengine.engine.core.GameObject
-import com.sengine.engine.core.ParticleEmitter
+import com.sengine.engine.fx.ParticleEmitter
 import com.sengine.engine.core.Rigidbody2D
 import com.sengine.engine.core.Scene
 import com.sengine.engine.core.ScriptComponent
+import com.sengine.engine.core.SceneSerializer
 import com.sengine.engine.core.SpriteRenderer
-import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.tilemap.TilemapRenderer
+import com.sengine.engine.math.Colors
 import com.sengine.engine.render.EditorState
-import com.sengine.engine.render.SceneRenderer
 import com.sengine.engine.render.Tool
+import com.sengine.project.ClipLibrary
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
-import com.sengine.project.Templates
+import com.sengine.project.ScriptTemplates
+import java.io.File
 
-class EditorActivity : AppCompatActivity(), EditorHost {
+/**
+ * The 2D editor.
+ *
+ * Layout: top command bar (play/stop/pause/undo/redo/save/tools), left hierarchy, centre GL
+ * viewport with gizmos, right inspector, bottom console/profiler. Every button performs a real
+ * operation on the live scene; there are no decorative controls.
+ *
+ * Strictly 2D: one orthographic viewport, 2D tools only, no 3D camera or mesh editing anywhere.
+ */
+class EditorActivity : Activity(), InspectorPanel.Host, ViewportController.Callbacks {
 
-    override lateinit var engine: Engine
-    override lateinit var history: History
-    override lateinit var project: Project
-    val state = EditorState()
-
-    private lateinit var glView: GLSurfaceView
-    private lateinit var controller: ViewportController
+    private lateinit var project: Project
+    private lateinit var engine: Engine
+    private lateinit var history: History
+    private lateinit var state: EditorState
+    private lateinit var viewport: ViewportController
     private lateinit var inspector: InspectorPanel
     private lateinit var hierarchy: HierarchyAdapter
-    private lateinit var controls: GameControlsView
-    private lateinit var toolbar: LinearLayout
-    private lateinit var titleText: TextView
-    private lateinit var statsText: TextView
-    private lateinit var consoleText: TextView
-    private lateinit var consoleScroll: ScrollView
-    private lateinit var assetsRow: LinearLayout
-    private lateinit var assetsScroll: HorizontalScrollView
-    private lateinit var hierarchyPanel: View
-    private lateinit var inspectorPanel: View
-    private lateinit var bottomPanel: LinearLayout
-    private lateinit var bottomContent: FrameLayout
-    private lateinit var tabConsole: TextView
-    private lateinit var tabAssets: TextView
-    private lateinit var assetButtons: LinearLayout
-    private lateinit var playBtn: TextView
-    private lateinit var pauseBtn: TextView
-    private lateinit var stepBtn: TextView
-    private lateinit var modeBtn: TextView
-    private val toolButtons = HashMap<Tool, TextView>()
+    private lateinit var hierarchyList: android.widget.ListView
+    private lateinit var console: TextView
+    private lateinit var titleBar: TextView
+    private lateinit var profiler: TextView
+    private lateinit var modeButton: TextView
+    private lateinit var sceneLabel: TextView
+    private lateinit var toolButtons: MutableMap<Tool, TextView>
+    private lateinit var leftPanel: View
+    private lateinit var rightPanel: View
+    private lateinit var bottomPanel: View
+    private var gridLabel: TextView? = null
+    private var snapCheck: android.widget.CheckBox? = null
+    private var dirty = false
+    private var searchQuery = ""
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var lastObjectCount = -1
-    private var importKind = AssetKind.TEXTURE
-
-    private val ticker = object : Runnable {
-        override fun run() {
-            inspector.refreshValues()
-            val count = engine.scene.objects.size
-            if (engine.mode != Engine.Mode.EDIT && count != lastObjectCount) refreshHierarchy()
-            val mode = when (engine.mode) { Engine.Mode.EDIT -> "EDIT"; Engine.Mode.PLAY -> "▶ PLAYING"; Engine.Mode.PAUSED -> "⏸ PAUSED" }
-            statsText.text = "$mode  •  ${engine.scene.name}  •  ${engine.fps.toInt()} FPS  •  $count objects" +
-                (if (state.mode3D) "  •  3D" else "") + (if (controller.snap) "  •  snap" else "") +
-                if (state.showProfiler) String.format("\nscripts %.2f ms  •  physics %.2f ms  •  render %.2f ms  •  %d draw calls  •  heap %d MB",
-                    engine.scriptMs, engine.physicsMs, engine.renderMs, engine.drawCalls,
-                    (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576) else ""
-            handler.postDelayed(this, 200)
-        }
-    }
-
-    private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importAsset(uri)
-    }
-
-    private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) try {
-            contentResolver.openOutputStream(uri)?.use { ProjectManager.exportZip(project, it) }
-            toast("Project exported")
-        } catch (e: Exception) { toast("Export failed: ${e.message}") }
-    }
-
-    private val engineListener = object : Engine.Listener {
-        override fun onLog(level: Int, message: String) { handler.post { appendConsole(level, message) } }
-        override fun onModeChanged(mode: Engine.Mode) { handler.post { updateModeUi() } }
-        override fun onSceneReplaced() {
-            handler.post {
-                refreshHierarchy()
-                if (engine.mode == Engine.Mode.EDIT) inspector.rebuild()
-            }
-        }
-    }
-
-    // ================================================================== lifecycle
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        project = ProjectManager.open(this, intent.getStringExtra("project") ?: run { finish(); return })
-        val sceneName = if (project.sceneExists(project.startScene)) project.startScene
-        else project.listScenes().firstOrNull() ?: "Main"
-        val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName).also {
-            it.create("Main Camera").add(Camera2D())
+        project = intent.getStringExtra("projectDir")?.let { Project(File(it)) }
+            ?: ProjectManager.open(this, intent.getStringExtra("project") ?: "")
+        val sceneName = intent.getStringExtra("scene")
+            ?: project.listScenes().firstOrNull() ?: project.startScene
+        val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName.ifBlank { "Main" })
+
+        state = EditorState()
+        engine = Engine(project, scene).apply {
+            editor = state
+            clipLoader = { ClipLibrary.clip(project, it) }
         }
-        engine = Engine(project, scene)
         history = History(engine)
-        engine.listeners.add(engineListener)
-        buildUi()
-        synchronized(engine.lock) {
-            scene.updateTransforms()
-            val cam = engine.mainCamera()
-            if (cam != null) {
-                state.view.cx = cam.world.tx; state.view.cy = cam.world.ty
-                state.view.size = (cam.getAny<Camera2D>()!!.size * 1.3f)
-            } else state.view.size = 6f
-        }
-        val auto3D = synchronized(engine.lock) { engine.mainCamera3D() != null && engine.mainCamera() == null }
-        if (intent.getBooleanExtra("mode3d", false) || auto3D) toggle3D()
-        refreshHierarchy()
-        inspector.rebuild()
-        refreshAssets()
-        updateModeUi()
-        appendConsole(0, "S Engine Ultimate 2.0 — project '${project.name}', scene '${scene.name}'")
+        inspector = InspectorPanel(this, engine, this)
 
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (engine.mode != Engine.Mode.EDIT) { engine.stop(); return }
-                saveScene(silent = true)
-                finish()
-            }
-        })
-    }
-
-    override fun onResume() {
-        super.onResume()
-        glView.onResume()
-        handler.post(ticker)
-        refreshAssets()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        glView.onPause()
-        handler.removeCallbacks(ticker)
-        if (engine.mode == Engine.Mode.EDIT && history.dirty) saveScene(silent = true)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        if (::engine.isInitialized) {
-            engine.listeners.remove(engineListener)
-            engine.release()
-        }
-    }
-
-    // ================================================================== UI construction
-    @SuppressLint("ClickableViewAccessibility")
-    private fun buildUi() {
         val root = vbox().apply { setBackgroundColor(C.BG) }
+        root.addView(commandBar(), lp(MATCH, WRAP))
+        root.addView(toolStrip(), lp(MATCH, WRAP))
 
-        // ---- toolbar
-        toolbar = hbox().apply { setPadding(dp(4), dp(3), dp(4), dp(3)) }
-        val tb = toolbar
-        fun sep() = tb.addView(View(this).apply { setBackgroundColor(0xFF45474D.toInt()) }, lp(dp(1), dp(22)).margins(dp(5), 0, dp(5), 0))
-        fun tbtn(t: String, onClick: (View) -> Unit): TextView {
-            val b = button(t, C.PANEL2, C.TEXT, onClick).apply { textSize = 15f; setPadding(dp(10), dp(5), dp(10), dp(5)) }
-            tb.addView(b, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-            return b
-        }
-        tbtn("←") { onBackPressedDispatcher.onBackPressed() }
-        titleText = label("", 13f, C.TEXT, true).apply { setPadding(dp(6), 0, dp(6), 0); maxWidth = dp(160); isSingleLine = true }
-        tb.addView(titleText)
-        sep()
-        tbtn("☰") { toggle(hierarchyPanel) }
-        for ((tool, glyph) in listOf(Tool.HAND to "✋", Tool.MOVE to "✥", Tool.ROTATE to "⟳", Tool.SCALE to "⤢")) {
-            toolButtons[tool] = tbtn(glyph) { setTool(tool) }
-        }
-        modeBtn = tbtn("2D") { toggle3D() }
-        tbtn("📊") { state.showProfiler = !state.showProfiler }
-        sep()
-        playBtn = tbtn("▶") { if (engine.mode == Engine.Mode.EDIT) startPlay() else engine.stop() }
-        pauseBtn = tbtn("⏸") { if (engine.mode == Engine.Mode.PAUSED) engine.play() else engine.pause() }
-        stepBtn = tbtn("⏭") { engine.stepFrame() }
-        sep()
-        tbtn("↶") { undo() }
-        tbtn("↷") { redo() }
-        sep()
-        tbtn("＋") { addObjectMenu(it) }
-        tbtn("💾") { saveScene() }
-        tbtn("⋮") { mainMenu(it) }
-        tbtn("▤") { toggle(inspectorPanel) }
-        val tbScroll = HorizontalScrollView(this).apply { addView(tb); isHorizontalScrollBarEnabled = false; setBackgroundColor(C.HEADER) }
-        root.addView(tbScroll, lp(MATCH, WRAP))
-
-        // ---- middle
         val middle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
 
-        // hierarchy
-        val hp = vbox().apply { setBackgroundColor(C.PANEL) }
-        val hh = hbox().apply { setBackgroundColor(C.HEADER); setPadding(dp(8), dp(2), dp(2), dp(2)) }
-        hh.addView(label("HIERARCHY", 11f, C.DIM, true), lp(0, WRAP, 1f))
-        hh.addView(button("＋", C.HEADER) { addObjectMenu(it) }.apply { textSize = 13f })
-        hp.addView(hh, lp(MATCH, WRAP))
-        hierarchy = HierarchyAdapter(this,
-            onClick = { select(it.id) },
-            onLongClick = { go, v -> objectMenu(go, v) },
-            onToggleActive = { go -> history.record(state.selectedId); synchronized(engine.lock) { go.active = !go.active }; refreshHierarchy(); inspector.refreshValues() })
-        val rv = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@EditorActivity); adapter = hierarchy }
-        hp.addView(rv, lp(MATCH, 0, 1f))
-        hierarchyPanel = hp
-        middle.addView(hp, lp(dp(180), MATCH))
-
-        // viewport
-        val vp = FrameLayout(this)
-        glView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
-            setRenderer(SceneRenderer(engine, state))
-            renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        // ---- left: hierarchy + assets
+        val left = vbox().apply {
+            background = round(C.PANEL, dp(6).toFloat())
+            setPadding(dp(6), dp(6), dp(6), dp(6))
         }
-        controller = ViewportController(this, engine, state)
-        glView.setOnTouchListener(controller)
-        vp.addView(glView)
-        controls = GameControlsView(this) { engine.input }
-        vp.addView(controls)
-        statsText = label("", 11f, 0xCCFFFFFF.toInt()).apply {
-            setPadding(dp(8), dp(3), dp(8), dp(3)); background = round(0x88000000.toInt(), dp(4).toFloat())
+        left.addView(section("Hierarchy", "＋", { addObjectMenu() }))
+        hierarchy = HierarchyAdapter(
+            this,
+            rows = { engine.scene.hierarchy().map { HierarchyAdapter.Row(it.first, it.second) } },
+            onSelect = { go, multi -> select(go, multi) },
+            onToggleVisible = { go -> go.active = !go.active; onStructureChanged(); onEdited(true) },
+            onLongPress = { go -> objectMenu(go) }
+        )
+        hierarchyList = android.widget.ListView(this).apply {
+            adapter = hierarchy
+            divider = null
+            dividerHeight = 0
+            setBackgroundColor(0x00000000)
         }
-        vp.addView(statsText, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { setMargins(dp(6), dp(6), 0, 0) })
-        val frameBtn = button("⌖", 0x88000000.toInt()) { controller.frame(synchronized(engine.lock) { engine.scene.findById(state.selectedId) }) }
-        vp.addView(frameBtn, FrameLayout.LayoutParams(dp(40), dp(40), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(6), 0) })
-        middle.addView(vp, lp(0, MATCH, 1f))
+        left.addView(hierarchyList, lp(MATCH, 0, 0.62f))
+        left.addView(section("Assets", "＋", { importAssetDialog() }))
+        left.addView(assetList(), lp(MATCH, 0, 0.38f))
+        leftPanel = left
 
-        // inspector
-        val ip = vbox().apply { setBackgroundColor(C.PANEL) }
-        val ih = hbox().apply { setBackgroundColor(C.HEADER); setPadding(dp(8), dp(6), dp(8), dp(6)) }
-        ih.addView(label("INSPECTOR", 11f, C.DIM, true))
-        ip.addView(ih, lp(MATCH, WRAP))
-        val inspContent = vbox()
-        ip.addView(ScrollView(this).apply { addView(inspContent); isFillViewport = true }, lp(MATCH, 0, 1f))
-        inspector = InspectorPanel(this, this, inspContent)
-        inspectorPanel = ip
-        middle.addView(ip, lp(dp(270), MATCH))
+        // ---- centre: viewport
+        val centre = FrameLayout(this)
+        viewport = ViewportController(this, engine, state, this)
+        centre.addView(viewport, FrameLayout.LayoutParams(MATCH, MATCH))
+        val hud = label("", 11f, 0x99FFFFFF.toInt()).apply {
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setBackgroundColor(0x66000000)
+        }
+        centre.addView(hud, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
+        modeButton = button("▶ Play", C.GREEN, 0xFFFFFFFF.toInt()) { togglePlay() }.apply {
+            layoutParams = FrameLayout.LayoutParams(dp(96), dp(38), Gravity.TOP or Gravity.END).also {
+                it.setMargins(0, dp(8), dp(8), 0)
+            }
+        }
+        centre.addView(modeButton)
+        val zoomRow = hbox().apply {
+            setBackgroundColor(0x66000000)
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            addView(button("＋", 0x00000000) { viewport.zoomBy(1.25f) })
+            addView(button("−", 0x00000000) { viewport.zoomBy(0.8f) })
+            addView(button("⌖", 0x00000000) {
+                state.selectedId.takeIf { it >= 0 }?.let { engine.scene.findById(it) }?.let { viewport.focus(it) }
+            })
+            addView(button("1:1", 0x00000000) { viewport.resetZoom() })
+        }
+        centre.addView(zoomRow, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).also {
+            it.setMargins(0, dp(54), dp(8), 0)
+        })
+        centre.addView(hud, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
+        hudId = hud
+        val bottom = vbox().apply {
+            setBackgroundColor(0xCC15181E.toInt())
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        profiler = label("", 11f, C.GREEN).apply { typeface = Typeface.MONOSPACE }
+        bottom.addView(profiler)
+        console = label("", 11f, C.DIM).apply {
+            typeface = Typeface.MONOSPACE
+            maxLines = 4
+        }
+        bottom.addView(console)
+        bottom.visibility = View.GONE
+        bottomPanel = bottom
+        centre.addView(bottom, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
 
+        middle.addView(left, lp(dp(230), MATCH))
+        middle.addView(centre, lp(0, MATCH, 1f))
+        rightPanel = inspector.view().apply {
+            layoutParams = lp(dp(300), MATCH)
+        }
+        middle.addView(rightPanel)
         root.addView(middle, lp(MATCH, 0, 1f))
-
-        // ---- bottom panel
-        bottomPanel = vbox().apply { setBackgroundColor(C.PANEL) }
-        val tabs = hbox().apply { setBackgroundColor(C.HEADER); setPadding(dp(4), dp(2), dp(4), dp(2)) }
-        tabConsole = button("Console", C.HEADER) { showTab(0) }.apply { textSize = 12f }
-        tabAssets = button("Assets", C.HEADER) { showTab(1) }.apply { textSize = 12f }
-        tabs.addView(tabConsole); tabs.addView(tabAssets)
-        tabs.addView(View(this), lp(0, 1, 1f))
-        assetButtons = hbox()
-        assetButtons.addView(button("+ Script") { newScriptDialog { refreshAssets(); openScript(it) } }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("🛒 Store") { startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name)) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("+ Blueprint") { newAssetDialog("New Blueprint", "NewBlueprint", "bp", { com.sengine.engine.blueprint.Blueprint.defaultGraph().toJson().toString(2) }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("+ Shader") { newAssetDialog("New Shader", "NewShader", "glsl", { Templates.NEW_SHADER }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("+ Animation") { newAssetDialog("New Animation", "NewAnimation", "anim", { com.sengine.engine.anim.AnimationClip().toJson().toString(2) }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("Import Model") { importKind = AssetKind.MODEL; importLauncher.launch(arrayOf("*/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("Import Image") { importKind = AssetKind.TEXTURE; importLauncher.launch(arrayOf("image/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        assetButtons.addView(button("Import Sound") { importKind = AssetKind.SOUND; importLauncher.launch(arrayOf("audio/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
-        tabs.addView(assetButtons)
-        tabs.addView(button("Clear", C.HEADER) { consoleText.text = "" }.apply { textSize = 12f })
-        tabs.addView(button("▾", C.HEADER) { toggle(bottomContent) }.apply { textSize = 12f })
-        bottomPanel.addView(tabs, lp(MATCH, WRAP))
-
-        bottomContent = FrameLayout(this)
-        consoleText = label("", 11f, 0xFFCFD2D6.toInt()).apply { typeface = Typeface.MONOSPACE; setPadding(dp(8), dp(4), dp(8), dp(4)); setTextIsSelectable(true) }
-        consoleScroll = ScrollView(this).apply { addView(consoleText) }
-        bottomContent.addView(consoleScroll)
-        assetsRow = hbox().apply { setPadding(dp(6), dp(6), dp(6), dp(6)) }
-        assetsScroll = HorizontalScrollView(this).apply { addView(assetsRow) }
-        bottomContent.addView(assetsScroll)
-        bottomPanel.addView(bottomContent, lp(MATCH, dp(112)))
-        root.addView(bottomPanel, lp(MATCH, WRAP))
-
         setContentView(root)
-        setTool(Tool.MOVE)
-        showTab(0)
-        updateTitle()
+
+        engine.listeners.add(object : Engine.Listener {
+            override fun onLog(level: Int, message: String) = runOnUiThread { appendConsole(level, message) }
+            override fun onModeChanged(mode: Engine.Mode) = runOnUiThread { updateModeUi(mode) }
+            override fun onSceneReplaced() = runOnUiThread { onStructureChanged() }
+            override fun onSelectionChanged() = runOnUiThread { inspector.rebuild() }
+        })
+        profilerTick.post(profilerRunnable)
+        updateModeUi(engine.mode)
+        onStructureChanged()
+        inspector.rebuild()
+        toast("Editing ${project.name} · scene $sceneName")
     }
 
-    private fun toggle(v: View) { v.visibility = if (v.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+    private lateinit var hudId: TextView
 
-    private fun showTab(i: Int) {
-        consoleScroll.visibility = if (i == 0) View.VISIBLE else View.GONE
-        assetsScroll.visibility = if (i == 1) View.VISIBLE else View.GONE
-        assetButtons.visibility = if (i == 1) View.VISIBLE else View.GONE
-        tabConsole.setTextColor(if (i == 0) C.ACCENT else C.DIM)
-        tabAssets.setTextColor(if (i == 1) C.ACCENT else C.DIM)
-        bottomContent.visibility = View.VISIBLE
+    // ---------------------------------------------------------------- chrome
+    private fun commandBar(): View = hbox().apply {
+        setBackgroundColor(C.HEADER)
+        setPadding(dp(8), dp(6), dp(8), dp(6))
+        addView(button("‹") { finish() })
+        titleBar = label("S Engine 2D · ${project.name}", 15f, C.TEXT, bold = true).apply {
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        addView(titleBar)
+        sceneLabel = label("", 12f, C.DIM)
+        addView(sceneLabel)
+        addView(spacer())
+        addView(button("↶ Undo") { undo() })
+        addView(button("↷ Redo") { redo() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("☰ Scenes") { scenesDialog() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("⚙ Settings") { settingsDialog() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("Console") { bottomPanel.visibility = if (bottomPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+            .apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("Save", C.ACCENT, 0xFFFFFFFF.toInt()) { saveScene() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("Build APK") {
+            startActivity(Intent(this@EditorActivity, BuildActivity::class.java).putExtra("project", project.name))
+        }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
+        addView(button("⤓ File") { fileMenu() }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(4), 0, 0, 0) })
     }
 
-    private fun updateTitle() {
-        titleText.text = "${project.name} / ${engine.scene.name}"
+    private fun toolStrip(): View {
+        toolButtons = HashMap()
+        return hbox().apply {
+            setBackgroundColor(0xFF26292E.toInt())
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            for (tool in Tool.entries) {
+                val b = toolButton(toolIcon(tool), tool.label, tool == state.tool) { setTool(tool) }
+                toolButtons[tool] = b
+                addView(b)
+            }
+            addView(spacer())
+            snapCheck = android.widget.CheckBox(this@EditorActivity).apply {
+                text = "Snap"
+                setTextColor(C.TEXT)
+                buttonTintList = android.content.res.ColorStateList.valueOf(C.ACCENT)
+                isChecked = state.snapToGrid
+                setOnCheckedChangeListener { _, v -> state.snapToGrid = v }
+            }
+            addView(snapCheck)
+            gridLabel = label("Grid ${fmt(state.gridSize)}", 12f, C.DIM).apply { setPadding(dp(6), 0, dp(6), 0) }
+            addView(gridLabel)
+            addView(button("−") { setGrid(state.gridSize / 2f) })
+            addView(button("+") { setGrid(state.gridSize * 2f) })
+            addView(button("Grid: ${if (state.showGrid) "on" else "off"}") {
+                state.showGrid = !state.showGrid
+                toast("Grid ${if (state.showGrid) "shown" else "hidden"}")
+            }.apply { layoutParams = lp(WRAP, WRAP).margins(dp(6), 0, 0, 0) })
+            addView(button("Gizmos") { state.showGizmos = !state.showGizmos })
+            addView(button("Colliders") { state.showColliders = !state.showColliders })
+            addView(button("Lights") { state.showLightGizmos = !state.showLightGizmos })
+        }
     }
 
-    private fun setTool(t: Tool) {
-        state.tool = t
-        for ((tool, b) in toolButtons) b.setButtonColor(if (tool == t) C.ACCENT else C.PANEL2)
+    private fun assetList(): View {
+        val list = android.widget.ListView(this).apply {
+            divider = null
+            dividerHeight = 0
+            setBackgroundColor(0x00000000)
+            adapter = object : android.widget.BaseAdapter() {
+                override fun getCount() = assetNames().size
+                override fun getItem(position: Int) = assetNames()[position]
+                override fun getItemId(position: Int) = position.toLong()
+                override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup?): View {
+                    val name = assetNames().getOrNull(position) ?: ""
+                    val row = (convertView as? LinearLayout) ?: hbox().apply {
+                        setPadding(dp(4), dp(4), dp(4), dp(4))
+                    }
+                    row.removeAllViews()
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    val glyph = when (ext) {
+                        "png", "jpg", "jpeg", "webp", "svg" -> "▧"
+                        "wav", "ogg", "mp3" -> "♪"
+                        "js" -> "{}"
+                        "bp" -> "⧉"
+                        "anim", "json" -> "▶"
+                        "mat", "glsl" -> "✦"
+                        "prefab" -> "◆"
+                        "tilemap" -> "▦"
+                        else -> "◦"
+                    }
+                    row.addView(label(glyph, 13f, C.ACCENT).apply { layoutParams = lp(dp(22), WRAP); gravity = Gravity.CENTER })
+                    row.addView(label(name, 12f, C.TEXT), lp(0, WRAP, 1f))
+                    row.isClickable = true
+                    row.setOnClickListener { assetMenu(name) }
+                    return row
+                }
+            }
+        }
+        return list
     }
 
-    private fun updateModeUi() {
-        val m = engine.mode
-        playBtn.text = if (m == Engine.Mode.EDIT) "▶" else "■"
-        playBtn.setButtonColor(if (m == Engine.Mode.EDIT) C.PANEL2 else C.GREEN)
-        pauseBtn.setButtonColor(if (m == Engine.Mode.PAUSED) C.YELLOW else C.PANEL2)
-        stepBtn.alpha = if (m == Engine.Mode.PAUSED) 1f else 0.4f
-        toolbar.setBackgroundColor(if (m == Engine.Mode.EDIT) C.HEADER else 0xFF1D2E45.toInt())
-        controls.visibility = if (m == Engine.Mode.EDIT) View.GONE else View.VISIBLE
-        controls.reset()
-        if (m == Engine.Mode.EDIT) { refreshHierarchy(); inspector.rebuild() }
-        updateTitle()
+    private fun assetNames(): List<String> =
+        project.listAssets().filter { searchQuery.isBlank() || it.contains(searchQuery, true) }
+
+    // ---------------------------------------------------------------- tools
+    private fun setTool(tool: Tool) {
+        state.tool = tool
+        for ((t, b) in toolButtons) b.setActive(t == tool)
+        hudId.text = tool.label
+        toast(tool.label)
     }
 
-    fun hideKeyboard(v: View) {
-        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(v.windowToken, 0)
+    private fun setGrid(size: Float) {
+        state.gridSize = size.coerceIn(0.0625f, 64f)
+        gridLabel?.text = "Grid ${fmt(state.gridSize)}"
     }
 
-    // ================================================================== EditorHost
-    override fun selectedId() = state.selectedId
+    // ---------------------------------------------------------------- mode
+    private fun togglePlay() {
+        when (engine.mode) {
+            Engine.Mode.EDIT -> {
+                engine.play()
+                toast("Playing - tap ❚❚ to pause, ■ to stop")
+            }
+            Engine.Mode.PLAY -> engine.pause()
+            Engine.Mode.PAUSED -> engine.resume()
+        }
+    }
 
-    override fun select(id: Long) {
-        currentFocus?.let { it.clearFocus(); hideKeyboard(it) }
-        state.selectedId = id
-        hierarchy.selectedId = id
-        hierarchy.notifyDataSetChanged()
+    private fun updateModeUi(mode: Engine.Mode) {
+        modeButton.text = when (mode) {
+            Engine.Mode.EDIT -> "▶ Play"
+            Engine.Mode.PLAY -> "❚❚ Pause"
+            Engine.Mode.PAUSED -> "▶ Resume"
+        }
+        modeButton.setButtonColor(if (mode == Engine.Mode.EDIT) C.GREEN else C.YELLOW)
+        modeButton.setTextColor(if (mode == Engine.Mode.EDIT) 0xFFFFFFFF.toInt() else 0xFF202020.toInt())
+        if (mode != Engine.Mode.EDIT) {
+            modeButton.setOnClickListener { togglePlay() }
+            modeButton.setOnLongClickListener { engine.stop(); true }
+        } else {
+            modeButton.setOnClickListener { togglePlay() }
+            modeButton.setOnLongClickListener(null)
+        }
+    }
+
+    // ---------------------------------------------------------------- hierarchy
+    private fun select(go: GameObject, multi: Boolean) {
+        if (multi) {
+            val ids = state.selectedIds.toMutableList()
+            if (go.id in ids) ids.remove(go.id) else ids.add(go.id)
+            state.selectMany(ids.toLongArray())
+        } else {
+            state.select(go.id)
+        }
+        hierarchy.setSelection(state.selectedIds.toSet())
         inspector.rebuild()
     }
 
-    override fun onStructureChanged() = refreshHierarchy()
-
-    fun onObjectEdited() = inspector.refreshValues()
-
-    fun refreshHierarchy() {
-        val (items, all) = synchronized(engine.lock) { engine.scene.hierarchy() to engine.scene.objects.toList() }
-        lastObjectCount = all.size
-        hierarchy.selectedId = state.selectedId
-        hierarchy.submit(items, all)
-    }
-
-    override fun openScript(name: String) {
-        when (AssetKind.of(name)) {
-            AssetKind.ANIMATION -> openAnimationEditor(name)
-            else -> if (name.endsWith(".bp")) startActivity(Intent(this, BlueprintEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
-                else startActivity(Intent(this, ScriptEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
-        }
-    }
-
-    fun openAnimationEditor(name: String?) {
-        saveScene(silent = true)
-        startActivity(Intent(this, AnimationEditorActivity::class.java).putExtra("project", project.name).apply { if (name != null) putExtra("asset", name) })
-    }
-
-    private fun newAssetDialog(title: String, base: String, ext: String, content: (String) -> String, open: Boolean = true) {
-        val f = field(base)
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
-            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
-            .setPositiveButton("Create") { _, _ ->
-                var n = f.text.toString().trim().replace(Regex("[^A-Za-z0-9_\\-]"), "").ifBlank { base }
-                if (!n.endsWith(".$ext")) n += ".$ext"
-                n = project.uniqueAssetName(n)
-                project.writeAsset(n, content(n))
-                refreshAssets()
-                if (open) openScript(n)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    override fun newScriptDialog(onCreated: (String) -> Unit) {
-        val f = field("NewBehaviour")
-        MaterialAlertDialogBuilder(this)
-            .setTitle("New Script")
-            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
-            .setPositiveButton("Create") { _, _ ->
-                var n = f.text.toString().trim().replace(Regex("[^A-Za-z0-9_\\-]"), "").ifBlank { "NewBehaviour" }
-                if (!n.endsWith(".js")) n += ".js"
-                n = project.uniqueAssetName(n)
-                project.writeAsset(n, Templates.NEW_SCRIPT)
-                refreshAssets()
-                onCreated(n)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    // ================================================================== play / undo / save
-    private fun startPlay() {
-        currentFocus?.let { it.clearFocus(); hideKeyboard(it) }
-        consoleText.text = ""
-        engine.play()
-    }
-
-    private fun undo() {
-        if (engine.mode != Engine.Mode.EDIT) return
-        val r = history.undo(state.selectedId) ?: run { toast("Nothing to undo"); return }
-        applySnapshot(r.first, r.second)
-    }
-
-    private fun redo() {
-        if (engine.mode != Engine.Mode.EDIT) return
-        val r = history.redo(state.selectedId) ?: run { toast("Nothing to redo"); return }
-        applySnapshot(r.first, r.second)
-    }
-
-    private fun applySnapshot(s: Scene, sel: Long) {
-        synchronized(engine.lock) { s.name = engine.scene.name; engine.replaceScene(s) }
-        state.selectedId = sel
-        refreshHierarchy(); inspector.rebuild()
-    }
-
-    private fun saveScene(silent: Boolean = false) {
-        if (engine.mode != Engine.Mode.EDIT) { if (!silent) toast("Stop play mode before saving"); return }
-        try {
-            synchronized(engine.lock) { project.saveScene(engine.scene) }
-            project.saveMeta()
-            history.dirty = false
-            if (!silent) toast("Saved ${engine.scene.name}") else appendConsole(0, "Auto-saved ${engine.scene.name}")
-        } catch (e: Exception) { toast("Save failed: ${e.message}") }
-    }
-
-    // ================================================================== object creation
-    private fun toggle3D() {
-        state.mode3D = !state.mode3D
-        modeBtn.text = if (state.mode3D) "3D" else "2D"
-        if (state.mode3D) synchronized(engine.lock) { controller.frame(engine.scene.findById(state.selectedId)) }
-    }
-
-    private fun addObjectMenu(anchor: View) {
-        if (engine.mode != Engine.Mode.EDIT) { toast("Stop play mode to add objects"); return }
-        val pm = PopupMenu(this, anchor)
-        pm.menu.add("Empty"); pm.menu.add("Empty Child")
-        val m2 = pm.menu.addSubMenu("2D Object")
-        listOf("Square", "Circle", "Triangle", "Text", "UI Text", "Camera", "Particle System",
-            "Physics Box", "Physics Ball", "Static Platform", "Trigger Zone", "Animated Sprite").forEach { m2.add(it) }
-        val m3 = pm.menu.addSubMenu("3D Object")
-        listOf("Cube", "Sphere", "Plane", "Cylinder", "Cone", "Torus", "Capsule", "Pyramid",
-            "Physics Cube 3D", "Physics Sphere 3D", "Ground 3D", "3D Camera", "Directional Light", "Point Light").forEach { m3.add(it) }
-        pm.setOnMenuItemClickListener { if (!it.hasSubMenu()) createObject(it.title.toString()); true }
-        pm.show()
-    }
-
-    private fun createObject(kind: String) {
-        history.record(state.selectedId)
-        val go = synchronized(engine.lock) {
-            val scene = engine.scene
-            val parent = if (kind == "Empty Child") scene.findById(state.selectedId) else null
-            val g = scene.create(if (kind == "Empty Child") "GameObject" else kind, parent)
-            if (parent == null) {
-                if (state.mode3D) { g.x = snap(state.orbitX); g.y = snap(state.orbitY); g.z = snap(state.orbitZ) }
-                else { g.x = snap(state.view.cx); g.y = snap(state.view.cy) }
-            }
-            val meshKinds = MeshRenderer.MESHES
-            when (kind) {
-                in meshKinds -> g.add(MeshRenderer().also { it.mesh = meshKinds.indexOf(kind) }).also { if (kind == "Plane") { g.scaleX = 10f; g.scaleZ = 10f } }
-                "Physics Cube 3D" -> { g.y += 3f; g.add(MeshRenderer().also { it.color = 0xFFFFB74D.toInt() }); g.add(Collider3D()); g.add(Rigidbody3D()) }
-                "Physics Sphere 3D" -> { g.y += 3f; g.add(MeshRenderer().also { it.mesh = 1; it.color = 0xFF4FC3F7.toInt() }); g.add(Collider3D().also { it.shape = 1 }); g.add(Rigidbody3D().also { it.bounciness = 0.5f }) }
-                "Ground 3D" -> { g.scaleX = 20f; g.scaleY = 0.5f; g.scaleZ = 20f; g.y = -0.25f; g.add(MeshRenderer().also { it.color = 0xFF6D8B5A.toInt() }); g.add(Collider3D()) }
-                "3D Camera" -> { g.y = 3f; g.z = 10f; g.rotX = -12f; g.add(Camera3D()) }
-                "Directional Light" -> { g.rotX = -50f; g.rotY = 30f; g.add(Light()) }
-                "Point Light" -> { g.y += 2f; g.add(Light().also { it.kind = 1; it.color = 0xFFFFC870.toInt() }) }
-                "UI Text" -> { g.x = 0f; g.y = 4f; g.add(TextRenderer().also { it.screenSpace = true; it.text = "Score: 0" }) }
-                "Animated Sprite" -> { g.add(SpriteRenderer()); g.add(Animator()) }
-                "Empty", "Empty Child" -> g.name = scene.uniqueName("GameObject")
-                "Square" -> g.add(SpriteRenderer())
-                "Circle" -> g.add(SpriteRenderer().also { it.shape = 1 })
-                "Triangle" -> g.add(SpriteRenderer().also { it.shape = 2 })
-                "Text" -> g.add(TextRenderer())
-                "Camera" -> g.add(Camera2D())
-                "Particle System" -> g.add(ParticleEmitter())
-                "Physics Box" -> { g.add(SpriteRenderer().also { it.color = 0xFFFFB74D.toInt() }); g.add(Collider2D()); g.add(Rigidbody2D()) }
-                "Physics Ball" -> {
-                    g.add(SpriteRenderer().also { it.shape = 1; it.color = 0xFF4FC3F7.toInt() })
-                    g.add(Collider2D().also { it.shape = 1 }); g.add(Rigidbody2D().also { it.bounciness = 0.6f })
-                }
-                "Static Platform" -> { g.scaleX = 4f; g.scaleY = 0.5f; g.add(SpriteRenderer().also { it.color = 0xFF8D6E63.toInt() }); g.add(Collider2D()) }
-                "Trigger Zone" -> { g.scaleX = 2f; g.scaleY = 2f; g.add(Collider2D().also { it.isTrigger = true }) }
-            }
-            g
-        }
-        refreshHierarchy()
-        select(go.id)
-    }
-
-    private fun snap(v: Float) = Math.round(v * 2f) / 2f
-
-    private fun objectMenu(go: GameObject, anchor: View) {
-        if (engine.mode != Engine.Mode.EDIT) { select(go.id); return }
-        val pm = PopupMenu(this, anchor)
-        listOf("Rename", "Duplicate", "Delete", "Create Child", "Move Up", "Move Down", "Unparent", "Frame in View").forEach { pm.menu.add(it) }
-        pm.setOnMenuItemClickListener { item ->
-            when (item.title) {
-                "Rename" -> renameDialog(go)
-                "Frame in View" -> controller.frame(go)
-                else -> {
-                    history.record(state.selectedId)
-                    var newSel = state.selectedId
-                    synchronized(engine.lock) {
-                        val scene = engine.scene
-                        when (item.title) {
-                            "Duplicate" -> newSel = scene.duplicate(go).also { it.x += 0.5f; it.y -= 0.5f }.id
-                            "Delete" -> { scene.remove(go); if (newSel == go.id) newSel = -1 }
-                            "Create Child" -> newSel = scene.create("GameObject", go).id
-                            "Move Up" -> scene.moveInOrder(go, -1)
-                            "Move Down" -> scene.moveInOrder(go, 1)
-                            "Unparent" -> InspectorPanel.reparentKeepWorld(go, null)
-                        }
-                        Unit
-                    }
-                    refreshHierarchy()
-                    select(newSel)
-                }
-            }
-            true
-        }
-        pm.show()
-    }
-
-    private fun renameDialog(go: GameObject) {
-        val f = field(go.name)
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Rename")
-            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
-            .setPositiveButton("OK") { _, _ ->
-                history.record(state.selectedId)
-                synchronized(engine.lock) { go.name = f.text.toString().ifBlank { go.name } }
-                refreshHierarchy(); inspector.rebuild()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    // ================================================================== menus & scenes
-    private fun mainMenu(anchor: View) {
-        val pm = PopupMenu(this, anchor)
-        val entries = listOf(
-            "Save Scene", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store", "Animation Editor", "Export Project (.zip)",
-            (if (state.showProfiler) "Hide" else "Show") + " Profiler",
-            (if (state.showGrid) "Hide" else "Show") + " Grid",
-            (if (state.showColliders) "Hide" else "Show") + " Colliders",
-            "Snap: " + if (controller.snap) "ON" else "OFF",
-            "Toggle Bottom Panel", "Script API Reference", "About S Engine"
+    private fun addObjectMenu() {
+        val items = arrayOf(
+            "Empty object", "Sprite", "Camera", "Text", "Particle emitter", "Point light",
+            "Physics box", "Physics circle", "Character", "Vehicle", "UI canvas", "Tilemap"
         )
-        entries.forEach { pm.menu.add(it) }
-        pm.setOnMenuItemClickListener { item ->
-            val t = item.title.toString()
-            when {
-                t == "Save Scene" -> saveScene()
-                t == "Scenes…" -> scenesDialog()
-                t.startsWith("Build & Run") -> { saveScene(silent = true); startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", project.name)) }
-                t == "Build APK…" -> { saveScene(silent = true); startActivity(Intent(this, BuildActivity::class.java).putExtra("project", project.name)) }
-                t == "Asset Store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name))
-                t == "Animation Editor" -> openAnimationEditor(null)
-                t.endsWith("Profiler") -> state.showProfiler = !state.showProfiler
-                t.startsWith("Export") -> { saveScene(silent = true); exportLauncher.launch("${project.name}.zip") }
-                t.endsWith("Grid") -> state.showGrid = !state.showGrid
-                t.endsWith("Colliders") -> state.showColliders = !state.showColliders
-                t.startsWith("Snap") -> controller.snap = !controller.snap
-                t == "Toggle Bottom Panel" -> toggle(bottomPanel)
-                t == "Script API Reference" -> showText("Script API", ScriptEditorActivity.API_DOC)
-                t.startsWith("About") -> showText("About S Engine",
-                    "S Engine Ultimate 2.0\n\nA 2D & 3D game engine and editor that runs entirely on your Android device.\n\n" +
-                        "• 3D: meshes, OBJ models, Blinn-Phong lights, fog, sky, 3D physics, orbit editor\n" +
-                        "• Sprite animation editor, asset store, visual blueprints, GLSL shaders & post FX\n" +
-                        "• Build real installable APKs of your game\n" +
-                        "• Scene editor with hierarchy, inspector, gizmos, undo/redo\n• OpenGL ES 2.0 renderer: shapes, sprites, text, particles\n" +
-                        "• Physics: rigidbodies, box/circle colliders, triggers\n• JavaScript behaviours (Mozilla Rhino)\n" +
-                        "• Multiple scenes, audio, touch joystick, fullscreen player\n• Project import/export as .zip")
+        AlertDialog.Builder(this).setTitle("Add object").setItems(items) { _, which ->
+            val go = when (which) {
+                0 -> engine.scene.create(engine.scene.uniqueName("Object"))
+                1 -> engine.scene.create(engine.scene.uniqueName("Sprite")).also { it.add(SpriteRenderer()) }
+                2 -> engine.scene.create(engine.scene.uniqueName("Camera")).also { it.add(Camera2D()) }
+                3 -> engine.scene.create(engine.scene.uniqueName("Text")).also {
+                    it.add(com.sengine.engine.core.TextRenderer())
+                }
+                4 -> engine.scene.create(engine.scene.uniqueName("Particles")).also { it.add(ParticleEmitter()) }
+                5 -> engine.scene.create(engine.scene.uniqueName("Light")).also { it.add(com.sengine.engine.lighting.Light2D()) }
+                6 -> engine.scene.create(engine.scene.uniqueName("Box")).also {
+                    it.add(SpriteRenderer()); it.add(Rigidbody2D()); it.add(com.sengine.engine.core.Collider2D())
+                }
+                7 -> engine.scene.create(engine.scene.uniqueName("Circle")).also {
+                    val s = SpriteRenderer(); s.shape = SpriteRenderer.SHAPE_CIRCLE; it.add(s)
+                    it.add(Rigidbody2D())
+                    val c = com.sengine.engine.core.Collider2D(); c.shape = com.sengine.engine.core.Collider2D.SHAPE_CIRCLE
+                    it.add(c)
+                }
+                8 -> engine.scene.create(engine.scene.uniqueName("Player")).also {
+                    val s = SpriteRenderer(); s.shape = SpriteRenderer.SHAPE_CAPSULE; s.width = 0.7f; s.height = 1.6f
+                    it.add(s)
+                    it.add(com.sengine.engine.character.CharacterController2D())
+                    it.add(com.sengine.engine.core.Health())
+                    val c = com.sengine.engine.core.Collider2D(); c.shape = com.sengine.engine.core.Collider2D.SHAPE_CAPSULE
+                    c.width = 0.7f; c.height = 1.6f
+                    it.add(c)
+                    it.tag = "Player"
+                }
+                9 -> engine.scene.create(engine.scene.uniqueName("Vehicle")).also {
+                    it.add(SpriteRenderer())
+                    it.add(Rigidbody2D())
+                    it.add(com.sengine.engine.core.Collider2D())
+                    it.add(com.sengine.engine.vehicle.Vehicle2D())
+                }
+                10 -> engine.scene.create(engine.scene.uniqueName("UI")).also {
+                    it.add(com.sengine.engine.ui.UiCanvas())
+                }
+                else -> engine.scene.create(engine.scene.uniqueName("Tilemap")).also { it.add(TilemapRenderer()) }
             }
-            true
+            // place new objects at the viewport centre so they are visible immediately
+            go.x = state.view.cx
+            go.y = state.view.cy
+            select(go, false)
+            onStructureChanged()
+            onEdited(true)
+        }.show()
+    }
+
+    private fun objectMenu(go: GameObject) {
+        val items = arrayOf(
+            "Rename", "Duplicate", "Add child", "Focus", "Add script", "Add physics", "Save as prefab", "Delete"
+        )
+        AlertDialog.Builder(this).setTitle(go.name).setItems(items) { _, which ->
+            when (which) {
+                0 -> inputDialog("Rename", go.name) { n -> if (n.isNotBlank()) { go.name = n; onStructureChanged() } }
+                1 -> { val c = engine.scene.duplicate(go); select(c, false); onStructureChanged(); onEdited(true) }
+                2 -> {
+                    val child = engine.scene.create(engine.scene.uniqueName("Child"), go)
+                    select(child, false)
+                    onStructureChanged()
+                    onEdited(true)
+                }
+                3 -> viewport.focus(go)
+                4 -> {
+                    val scripts = project.listAssets(com.sengine.engine.core.AssetKind.SCRIPT)
+                    AlertDialog.Builder(this)
+                        .setTitle("Attach script")
+                        .setItems((scripts + "New script…").toTypedArray()) { _, i ->
+                            if (i == scripts.size) {
+                                inputDialog("Script name", "Behaviour.js") { n ->
+                                    val name = if (n.endsWith(".js")) n else "$n.js"
+                                    project.writeAsset(name, ScriptTemplates.basic())
+                                    attachScript(go, name)
+                                }
+                            } else attachScript(go, scripts[i])
+                        }.show()
+                }
+                5 -> {
+                    if (go.getAny<Rigidbody2D>() == null) go.add(Rigidbody2D())
+                    if (go.getAny<com.sengine.engine.core.Collider2D>() == null) go.add(com.sengine.engine.core.Collider2D())
+                    onEdited(true)
+                    inspector.rebuild()
+                }
+                6 -> savePrefab(go)
+                else -> {
+                    engine.scene.remove(go)
+                    state.clearSelection()
+                    onStructureChanged()
+                    onEdited(true)
+                }
+            }
+        }.show()
+    }
+
+    private fun attachScript(go: GameObject, asset: String) {
+        val existing = go.getAny<ScriptComponent>() ?: ScriptComponent().also { go.add(it) }
+        existing.script = asset
+        onEdited(true)
+        inspector.rebuild()
+        toast("Attached $asset")
+    }
+
+    private fun savePrefab(go: GameObject) {
+        inputDialog("Prefab name", go.name) { raw ->
+            val name = if (raw.endsWith(".prefab")) raw else "$raw.prefab"
+            val prefab = com.sengine.engine.core.Prefab.fromObject(go, raw)
+            project.writeAsset(name, prefab.toJson().toString(2))
+            engine.clearPrefabCache()
+            toast("Saved $name - spawn it with scene.instantiate(\"$name\", x, y)")
         }
-        pm.show()
     }
 
-    private fun showText(title: String, text: String) {
-        val tv = label(text, 12f).apply { typeface = Typeface.MONOSPACE; setPadding(dp(18), dp(10), dp(18), dp(10)); setTextIsSelectable(true) }
-        MaterialAlertDialogBuilder(this).setTitle(title).setView(ScrollView(this).apply { addView(tv) }).setPositiveButton("Close", null).show()
+    private fun importAssetDialog() {
+        @Suppress("DEPRECATION")
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), REQ_IMPORT
+        )
     }
 
-    private fun scenesDialog() {
-        if (engine.mode != Engine.Mode.EDIT) { toast("Stop play mode first"); return }
-        saveScene(silent = true)
-        val scenes = project.listScenes()
-        val labels = scenes.map { s ->
-            s + (if (s == engine.scene.name) "   (open)" else "") + (if (s == project.startScene) "   ★ start" else "")
-        } + "+ New Scene"
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Scenes")
-            .setItems(labels.toTypedArray()) { _, i ->
-                if (i == scenes.size) newSceneDialog() else sceneActions(scenes[i])
-            }
-            .show()
-    }
-
-    private fun sceneActions(name: String) {
-        val actions = arrayOf("Open", "Set as Start Scene", "Duplicate", "Delete")
-        MaterialAlertDialogBuilder(this)
-            .setTitle(name)
-            .setItems(actions) { _, i ->
-                when (i) {
-                    0 -> openScene(name)
-                    1 -> { project.startScene = name; project.saveMeta(); toast("$name is now the start scene") }
-                    2 -> {
-                        var n = "$name Copy"; var k = 2
-                        while (project.sceneExists(n)) n = "$name Copy ${k++}"
-                        project.sceneFile(name).copyTo(project.sceneFile(n))
-                        toast("Created $n")
-                    }
-                    3 -> {
-                        if (name == engine.scene.name) toast("Can't delete the open scene")
-                        else { project.deleteScene(name); toast("Deleted $name") }
-                    }
-                }
-            }
-            .show()
-    }
-
-    private fun newSceneDialog() {
-        val f = field("Level2")
-        MaterialAlertDialogBuilder(this)
-            .setTitle("New Scene")
-            .setView(LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(f, lp(MATCH, WRAP)) })
-            .setPositiveButton("Create") { _, _ ->
-                val n = ProjectManager.sanitize(f.text.toString())
-                if (n.isBlank() || project.sceneExists(n)) { toast("Invalid or existing name"); return@setPositiveButton }
-                val s = Scene(n)
-                s.create("Main Camera").add(Camera2D())
-                project.saveScene(s)
-                openScene(n)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun openScene(name: String) {
-        val s = project.loadScene(name)
-        synchronized(engine.lock) { engine.replaceScene(s) }
-        history.clear(); history.dirty = false
-        state.selectedId = -1
-        refreshHierarchy(); inspector.rebuild(); updateTitle()
-        appendConsole(0, "Opened scene $name")
-    }
-
-    // ================================================================== assets
-    fun refreshAssets() {
-        if (!::assetsRow.isInitialized) return
-        assetsRow.removeAllViews()
-        val assets = project.listAssets()
-        if (assets.isEmpty()) assetsRow.addView(label("No assets yet. Create a script or import images / sounds.", 12f, C.DIM).apply { setPadding(dp(8), dp(20), 0, 0) })
-        for (name in assets) assetsRow.addView(assetCard(name), lp(dp(88), MATCH).margins(dp(3), 0, dp(3), 0))
-    }
-
-    private fun assetCard(name: String): View {
-        val kind = AssetKind.of(name)
-        val card = vbox().apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            background = round(C.PANEL2, dp(6).toFloat())
-            setPadding(dp(4), dp(6), dp(4), dp(4))
-        }
-        if (kind == AssetKind.TEXTURE) {
-            val iv = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-            try {
-                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                iv.setImageBitmap(BitmapFactory.decodeFile(project.assetFile(name).absolutePath, opts))
-            } catch (_: Throwable) {}
-            card.addView(iv, lp(dp(56), dp(48)))
-        } else {
-            val (glyph, color) = when (kind) {
-                AssetKind.SCRIPT -> (if (name.endsWith(".bp")) "BP" to 0xFF4FC3F7.toInt() else "JS" to C.YELLOW)
-                AssetKind.SOUND -> "♪" to C.GREEN
-                AssetKind.SHADER -> "GLSL" to 0xFFE040FB.toInt()
-                AssetKind.ANIMATION -> "▶▶" to 0xFFFF8A65.toInt()
-                AssetKind.MODEL -> "3D" to 0xFF80CBC4.toInt()
-                else -> "?" to C.DIM
-            }
-            card.addView(label(glyph, 20f, color, true).apply { gravity = Gravity.CENTER }, lp(dp(56), dp(48)))
-        }
-        card.addView(label(name, 10f, C.TEXT).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
-        card.setOnClickListener { assetMenu(name, kind, it) }
-        return card
-    }
-
-    private fun assetMenu(name: String, kind: AssetKind?, anchor: View) {
-        val pm = PopupMenu(this, anchor)
-        val sel = synchronized(engine.lock) { engine.scene.findById(state.selectedId) }
-        when (kind) {
-            AssetKind.SCRIPT -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Attach to ${sel.name}") }
-            AssetKind.TEXTURE -> { pm.menu.add("Create Sprite"); if (sel != null) pm.menu.add("Assign to ${sel.name}") }
-            AssetKind.SOUND -> { pm.menu.add("Preview"); if (sel != null) pm.menu.add("Add AudioSource to ${sel.name}") }
-            AssetKind.SHADER -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Use shader on ${sel.name}") }
-            AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}") }
-            AssetKind.MODEL -> { pm.menu.add("Create 3D Model Object"); if (sel != null) pm.menu.add("Use model on ${sel.name}") }
-            null -> {}
-        }
-        pm.menu.add("Delete")
-        pm.setOnMenuItemClickListener { item ->
-            val t = item.title.toString()
-            when {
-                t == "Edit" -> openScript(name)
-                t == "Preview" -> try {
-                    android.media.MediaPlayer().apply {
-                        setDataSource(project.assetFile(name).absolutePath); setOnCompletionListener { it.release() }; prepare(); start()
-                    }
-                } catch (e: Exception) { toast("Can't play: ${e.message}") }
-                t == "Create Sprite" -> {
-                    history.record(state.selectedId)
-                    val go = synchronized(engine.lock) {
-                        val g = engine.scene.create(name.substringBeforeLast('.'))
-                        g.x = snap(state.view.cx); g.y = snap(state.view.cy)
-                        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeFile(project.assetFile(name).absolutePath, opts)
-                        if (opts.outWidth > 0) g.scaleY = opts.outHeight.toFloat() / opts.outWidth
-                        g.add(SpriteRenderer().also { it.texture = name })
-                        g
-                    }
-                    refreshHierarchy(); select(go.id)
-                }
-                sel != null && t.startsWith("Attach") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) { sel.add(ScriptComponent().also { it.script = name }) }
-                    inspector.rebuild()
-                }
-                sel != null && t.startsWith("Assign") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) {
-                        (sel.getAny<SpriteRenderer>() ?: sel.add(SpriteRenderer())).texture = name
-                    }
-                    inspector.rebuild()
-                }
-                sel != null && t.startsWith("Use shader") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) {
-                        val mr = sel.getAny<MeshRenderer>()
-                        if (mr != null) mr.shader = name else (sel.getAny<SpriteRenderer>() ?: sel.add(SpriteRenderer())).shader = name
-                    }
-                    inspector.rebuild()
-                }
-                sel != null && t.startsWith("Play on") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) {
-                        if (sel.getAny<SpriteRenderer>() == null) sel.add(SpriteRenderer())
-                        (sel.getAny<Animator>() ?: sel.add(Animator())).clip = name
-                    }
-                    inspector.rebuild()
-                }
-                t == "Create 3D Model Object" -> {
-                    history.record(state.selectedId)
-                    val go = synchronized(engine.lock) {
-                        val g = engine.scene.create(name.substringBeforeLast('.'))
-                        g.x = snap(state.orbitX); g.y = snap(state.orbitY); g.z = snap(state.orbitZ)
-                        g.add(MeshRenderer().also { it.mesh = MeshRenderer.MESHES.size - 1; it.model = name })
-                        g
-                    }
-                    if (!state.mode3D) toggle3D()
-                    refreshHierarchy(); select(go.id)
-                }
-                sel != null && t.startsWith("Use model") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) {
-                        val mr = sel.getAny<MeshRenderer>() ?: sel.add(MeshRenderer())
-                        mr.mesh = MeshRenderer.MESHES.size - 1; mr.model = name
-                    }
-                    inspector.rebuild()
-                }
-                sel != null && t.startsWith("Add AudioSource") -> {
-                    history.record(state.selectedId)
-                    synchronized(engine.lock) { sel.add(AudioSource().also { it.clip = name }) }
-                    inspector.rebuild()
-                }
-                t == "Delete" -> MaterialAlertDialogBuilder(this)
-                    .setTitle("Delete $name?")
-                    .setPositiveButton("Delete") { _, _ -> project.assetFile(name).delete(); refreshAssets() }
-                    .setNegativeButton("Cancel", null).show()
-            }
-            true
-        }
-        pm.show()
-    }
-
-    private fun importAsset(uri: Uri) {
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_IMPORT || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        val name = queryName(uri) ?: "asset_${System.currentTimeMillis()}"
         try {
-            var display = "asset"
-            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                if (it.moveToFirst()) display = it.getString(0)
+            contentResolver.openInputStream(uri)?.use { input ->
+                project.assetFile(name).outputStream().use { input.copyTo(it) }
             }
-            var n = display.replace(Regex("[^A-Za-z0-9_.\\-]"), "_")
-            if (AssetKind.of(n) == null) {
-                val mime = contentResolver.getType(uri) ?: ""
-                n += when {
-                    mime.contains("png") -> ".png"
-                    mime.contains("jpeg") || mime.contains("jpg") -> ".jpg"
-                    mime.contains("webp") -> ".webp"
-                    mime.contains("ogg") -> ".ogg"
-                    mime.contains("mpeg") || mime.contains("mp3") -> ".mp3"
-                    mime.contains("wav") -> ".wav"
-                    importKind == AssetKind.MODEL -> ".obj"
-                    importKind == AssetKind.SOUND -> ".ogg"
-                    else -> ".png"
-                }
-            }
-            n = project.uniqueAssetName(n)
-            project.assetsDir.mkdirs()
-            contentResolver.openInputStream(uri)!!.use { input -> project.assetFile(n).outputStream().use { input.copyTo(it) } }
-            refreshAssets()
-            showTab(1)
-            toast("Imported $n")
+            toast("Imported $name")
+            onStructureChanged()
         } catch (e: Exception) {
             toast("Import failed: ${e.message}")
         }
     }
 
-    // ================================================================== console & input
-    private fun appendConsole(level: Int, msg: String) {
-        if (!::consoleText.isInitialized) return
-        val color = when (level) { 2 -> "#FF7B72"; 1 -> "#E3B341"; else -> "#CFD2D6" }
-        val line = android.text.Html.fromHtml("<font color='$color'>${android.text.TextUtils.htmlEncode(msg)}</font><br>", android.text.Html.FROM_HTML_MODE_LEGACY)
-        consoleText.append(line)
-        if (consoleText.text.length > 20000) consoleText.text = consoleText.text.subSequence(consoleText.text.length - 15000, consoleText.text.length)
-        consoleScroll.post { consoleScroll.fullScroll(View.FOCUS_DOWN) }
+    private fun queryName(uri: Uri): String? = try {
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && c.moveToFirst()) c.getString(idx) else uri.lastPathSegment
+        }
+    } catch (e: Exception) {
+        uri.lastPathSegment
+    }
+
+    private fun assetMenu(name: String) {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val actions = ArrayList<String>()
+        actions.add("Open")
+        when (ext) {
+            "js", "bp" -> actions.add("Edit")
+            "anim", "json" -> actions.add("Open animation editor")
+            "png", "jpg", "jpeg", "webp", "svg" -> actions.add("Create sprite sheet clip")
+            "mat" -> actions.add("Edit shader")
+        }
+        actions.add("Rename")
+        actions.add("Delete")
+        AlertDialog.Builder(this).setTitle(name).setItems(actions.toTypedArray()) { _, which ->
+            val action = actions[which]
+            when {
+                action == "Edit" -> {
+                    if (ext == "bp") startActivity(
+                        Intent(this, BlueprintEditorActivity::class.java)
+                            .putExtra("project", project.name).putExtra("asset", name)
+                    ) else startActivity(
+                        Intent(this, ScriptEditorActivity::class.java)
+                            .putExtra("project", project.name).putExtra("asset", name)
+                    )
+                }
+                action == "Open animation editor" -> startActivity(
+                    Intent(this, AnimationEditorActivity::class.java).putExtra("project", project.name)
+                )
+                action == "Create sprite sheet clip" -> inputDialog("Clip name", name.substringBeforeLast('.')) { raw ->
+                    ClipLibrary.createGridClip(project, raw.ifBlank { "Clip" }, name, 4, 4, 12f)
+                    toast("Created ${raw}.anim (4x4 grid) - open the animation editor to tune it")
+                }
+                action == "Edit shader" -> shaderEditor(name)
+                action == "Rename" -> inputDialog("Rename asset", name) { raw ->
+                    if (raw.isNotBlank() && raw != name) {
+                        project.assetFile(name).renameTo(project.assetFile(raw))
+                        onStructureChanged()
+                    }
+                }
+                action == "Delete" -> confirmDialog("Delete $name?", "The file is removed from the project.") {
+                    project.assetFile(name).delete()
+                    onStructureChanged()
+                }
+                action == "Open" -> {
+                    val ref = if (ext == "prefab") name else name
+                    toast("Use this asset from the inspector ($ref)")
+                }
+            }
+        }.show()
+    }
+
+    private fun shaderEditor(name: String) {
+        val current = project.readAsset(name)
+            ?: com.sengine.engine.render.Material2D.preset("sprite").toJson().toString(2)
+        val editor = field(current, multiline = true).apply {
+            typeface = Typeface.MONOSPACE
+            layoutParams = lp(MATCH, dp(320))
+        }
+        val box = vbox().apply { setPadding(dp(12), dp(8), dp(12), 0) }
+        box.addView(label("Edit the material JSON (shader, floats, colors, textures) or paste a GLSL fragment.", 11f, C.DIM))
+        box.addView(editor)
+        AlertDialog.Builder(this)
+            .setTitle(name)
+            .setView(android.widget.ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Save") { _, _ ->
+                project.writeAsset(name, editor.text.toString())
+                toast("Saved $name")
+            }
+            .setNeutralButton("GLSL template") { _, _ ->
+                editor.setText(com.sengine.engine.render.MaterialLibrary(project).newShaderTemplate())
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ---------------------------------------------------------------- scenes, settings, files
+    private fun scenesDialog() {
+        val scenes = project.listScenes()
+        val items = scenes + listOf("＋ New scene…", "⧉ Duplicate current", "🗑 Delete current")
+        AlertDialog.Builder(this).setTitle("Scenes (${project.name})").setItems(items.toTypedArray()) { _, which ->
+            when {
+                which < scenes.size -> {
+                    if (dirty) saveScene()
+                    val scene = project.loadScene(scenes[which])
+                    engine.post {
+                        engine.replaceScene(scene)
+                        engine.play()
+                    }
+                }
+                which == scenes.size -> inputDialog("New scene name", "Level2") { raw ->
+                    val n = raw.trim()
+                    if (n.isBlank()) return@inputDialog
+                    if (project.sceneExists(n)) return@inputDialog toast("Scene exists")
+                    val fresh = Scene(n)
+                    project.saveScene(fresh)
+                    toast("Created $n")
+                }
+                which == scenes.size + 1 -> inputDialog("Duplicate as", engine.scene.name + " Copy") { raw ->
+                    val n = raw.trim().ifBlank { engine.scene.name + " Copy" }
+                    val copy = SceneSerializer.fromJson(SceneSerializer.toJson(engine.scene))
+                    copy.name = n
+                    project.saveScene(copy)
+                    toast("Duplicated as $n")
+                }
+                else -> confirmDialog("Delete scene ${engine.scene.name}?", "This cannot be undone.") {
+                    project.deleteScene(engine.scene.name)
+                    val next = project.listScenes().firstOrNull()
+                    if (next != null) engine.replaceScene(project.loadScene(next))
+                    toast("Deleted")
+                }
+            }
+        }.show()
+    }
+
+    private fun settingsDialog() {
+        val box = vbox().apply { setPadding(dp(14), dp(8), dp(14), 0) }
+        box.addView(label("Project name: ${project.name}", 13f, C.TEXT, bold = true))
+        box.addView(label("Start scene", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
+        val scenes = project.listScenes().ifEmpty { listOf(project.startScene) }
+        var startIndex = scenes.indexOf(project.startScene).coerceAtLeast(0)
+        box.addView(choice(scenes, startIndex) { startIndex = it })
+        box.addView(label("Orientation", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
+        var orientation = project.orientation
+        box.addView(choice(listOf("Landscape", "Portrait"), orientation) { orientation = it })
+        box.addView(label("Default gravity Y", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
+        var gravity = engine.scene.gravityY
+        box.addView(context(gravity))
+        val gravityField = box.getChildAt(box.childCount - 1) as android.widget.LinearLayout
+        (gravityField.getChildAt(0) as android.widget.EditText).setText(fmt(gravity))
+        box.addView(label("Physics layers", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
+        box.addView(label(com.sengine.engine.core.PhysicsLayers.names.joinToString(", "), 11.5f, C.TEXT))
+        AlertDialog.Builder(this)
+            .setTitle("Project settings")
+            .setView(android.widget.ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Save") { _, _ ->
+                project.startScene = scenes[startIndex]
+                project.orientation = orientation
+                project.saveMeta()
+                val g = (gravityField.getChildAt(0) as android.widget.EditText).text.toString().toFloatOrNull()
+                if (g != null) { engine.scene.gravityY = g; engine.scene.gravityX = 0f }
+                project.saveScene(engine.scene)
+                toast("Project settings saved")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun context(value: Float): View = hbox().apply { addView(numberField(value, 0.5f) { /* read on save */ }) }
+
+    private fun fileMenu() {
+        val items = arrayOf("Save scene", "Save scene as…", "Export project .zip", "Capture screenshot", "Import asset", "Asset library", "Open in player")
+        AlertDialog.Builder(this).setItems(items) { _, which ->
+            when (which) {
+                0 -> saveScene()
+                1 -> inputDialog("Save as", engine.scene.name) { raw ->
+                    val n = raw.trim()
+                    if (n.isNotBlank()) {
+                        engine.scene.name = n
+                        project.saveScene(engine.scene)
+                        dirty = false
+                        toast("Saved scene $n")
+                    }
+                }
+                2 -> exportProjectZip()
+                3 -> captureScreenshot()
+                4 -> importAssetDialog()
+                5 -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name))
+                6 -> startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", project.name))
+            }
+        }.show()
+    }
+
+    private fun exportProjectZip() {
+        try {
+            val out = File(cacheDir, "${project.name}.zip")
+            out.outputStream().use { com.sengine.project.ProjectManager.exportZip(project, it) }
+            val uri = ShareProvider.uriFor(this, out)
+            if (uri == null) return toast("Export failed")
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/zip")
+                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share project"))
+        } catch (e: Exception) {
+            toast("Export failed: ${e.message}")
+        }
+    }
+
+    private fun captureScreenshot() {
+        viewport.screenshot { bmp ->
+            try {
+                val name = project.uniqueAssetName("${engine.scene.name}_shot.png")
+                project.assetFile(name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                toast("Saved assets/$name")
+                onStructureChanged()
+            } catch (e: Exception) {
+                toast("Screenshot failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun saveScene() {
+        try {
+            project.scenesDir.mkdirs()
+            project.saveScene(engine.scene)
+            dirty = false
+            toast("Saved scene ${engine.scene.name}")
+        } catch (e: Exception) {
+            toast("Save failed: ${e.message}")
+        }
+    }
+
+    // ---------------------------------------------------------------- undo / redo
+    private fun undo() {
+        val restored = history.undo(state.selectedId) ?: return toast("Nothing to undo")
+        applySnapshot(restored.first, restored.second)
+    }
+
+    private fun redo() {
+        val restored = history.redo(state.selectedId) ?: return toast("Nothing to redo")
+        applySnapshot(restored.first, restored.second)
+    }
+
+    private fun applySnapshot(scene: Scene, selected: Long) {
+        engine.replaceScene(scene)
+        state.select(selected)
+        onStructureChanged()
+        inspector.rebuild()
+        toast("Scene state restored")
+    }
+
+    // ---------------------------------------------------------------- profiler / console
+    private val profilerTick = android.os.Handler(android.os.Looper.getMainLooper())
+    private val profilerRunnable = object : Runnable {
+        override fun run() {
+            if (::engine.isInitialized) {
+                val stats = engine.renderer?.renderer?.stats
+                profiler.text = buildString {
+                    append("fps ${engine.fps.toInt()}")
+                    append("  ·  frame ${engine.renderMs.toInt()}ms (script ${engine.scriptMs.toInt()} physics ${engine.physicsMs.toInt()} anim ${engine.animationMs.toInt()} fx ${engine.particlesMs.toInt()})")
+                    append("  ·  objects ${engine.scene.objects.count { !it.destroyed }}")
+                    append("  ·  bodies ${engine.rigidBodyCount}")
+                    append("  ·  particles ${engine.activeParticles}")
+                    if (stats != null) {
+                        append("  ·  draws ${stats.drawCalls} quads ${stats.quadCount} batches ${stats.batchCount} culled ${stats.culled}")
+                        append("  ·  textures ${engine.renderer?.textures?.textureCount ?: 0} (${(engine.renderer?.textures?.uploadedBytes ?: 0L) / 1024} KB)")
+                    }
+                    append("  ·  heap ${(Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576}MB")
+                }
+                sceneLabel.text = "· ${engine.scene.name}" + if (dirty) " •" else ""
+            }
+            profilerTick.postDelayed(this, 500)
+        }
+    }
+
+    private fun appendConsole(level: Int, message: String) {
+        val prefix = when (level) {
+            2 -> "✘ "
+            1 -> "▲ "
+            else -> "• "
+        }
+        console.append("$prefix$message\n")
+        val lines = console.text.split('\n')
+        if (lines.size > 60) console.text = lines.takeLast(50).joinToString("\n")
+    }
+
+    // ---------------------------------------------------------------- lifecycle
+    override fun onResume() {
+        super.onResume()
+        profilerTick.post(profilerRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        profilerTick.removeCallbacks(profilerRunnable)
+        if (dirty) saveScene()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::engine.isInitialized) synchronized(engine.lock) { engine.release() }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (engine.mode != Engine.Mode.EDIT && keyCode != KeyEvent.KEYCODE_BACK) {
-            engine.input.keys.add(keyCode); return true
+        if (engine.input.handleKeyEvent(event ?: KeyEvent(KeyEvent.ACTION_DOWN, keyCode), true)) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_Z -> { undo(); return true }
+                KeyEvent.KEYCODE_Y -> { redo(); return true }
+                KeyEvent.KEYCODE_S -> { saveScene(); return true }
+                KeyEvent.KEYCODE_SPACE -> { togglePlay(); return true }
+                KeyEvent.KEYCODE_DEL -> {
+                    state.selectedId.takeIf { it >= 0 }?.let { engine.scene.findById(it) }?.let {
+                        engine.scene.remove(it)
+                        state.clearSelection()
+                        onStructureChanged()
+                        onEdited(true)
+                    }
+                    return true
+                }
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
-        engine.input.keys.remove(keyCode)
+        engine.input.handleKeyEvent(event ?: KeyEvent(KeyEvent.ACTION_UP, keyCode), false)
         return super.onKeyUp(keyCode, event)
     }
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+    // ---------------------------------------------------------------- ViewportController.Callbacks
+    override fun onSelectionChanged(go: GameObject?) {
+        hierarchy.setSelection(state.selectedIds.toSet())
+        inspector.rebuild()
+    }
+
+    override fun onSceneEdited(commit: Boolean) {
+        if (commit) history.record(state.selectedId)
+        dirty = true
+        hierarchy.notifyDataSetChanged()
+    }
+
+    override fun onContextMenu(go: GameObject?, worldX: Float, worldY: Float) {
+        if (go != null) {
+            select(go, false)
+            objectMenu(go)
+        } else {
+            AlertDialog.Builder(this)
+                .setItems(arrayOf("Add object here", "Paste", "Reset view")) { _, which ->
+                    when (which) {
+                        0 -> addObjectMenu()
+                        2 -> viewport.resetZoom()
+                    }
+                }.show()
+        }
+    }
+
+    override fun onStatus(text: String) {
+        hudId.text = text
+    }
+
+    // ---------------------------------------------------------------- InspectorPanel.Host
+    override fun onEdited(commit: Boolean) {
+        dirty = true
+        if (commit) history.record(state.selectedId)
+        hierarchy.notifyDataSetChanged()
+    }
+
+    override fun onStructureChanged() {
+        hierarchy.notifyDataSetChanged()
+        dirty = true
+    }
+
+    override fun openScript(name: String) {
+        startActivity(Intent(this, ScriptEditorActivity::class.java)
+            .putExtra("project", project.name).putExtra("asset", name))
+    }
+
+    override fun openTilemapEditor(go: GameObject) {
+        // the tile palette lives in the inspector + viewport tools (real painting, not a stub)
+        setTool(if (go.getAny<TilemapRenderer>()?.data != null) Tool.TILE_PAINT else Tool.SELECT)
+        toast("Tile tools active - pick a tile in the inspector and paint in the viewport")
+        inspector.rebuild()
+    }
+
+    override fun openParticleEditor(go: GameObject) {
+        val emitter = go.getAny<ParticleEmitter>() ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Particle preset")
+            .setItems(com.sengine.engine.fx.ParticlePresets.names.toTypedArray()) { _, which ->
+                emitter.applyPreset(com.sengine.engine.fx.ParticlePresets.names[which])
+                emitter.burst()
+                toast("Preset: ${emitter.preset}")
+                inspector.rebuild()
+            }.show()
+    }
+
+    override fun openAnimationEditor(clip: String) {
+        startActivity(Intent(this, AnimationEditorActivity::class.java)
+            .putExtra("project", project.name).putExtra("clip", clip))
+    }
+
+    override fun openPrefabEditor(go: GameObject) {
+        savePrefab(go)
+    }
+
+    override fun pickAsset(kind: com.sengine.engine.core.AssetKind, current: String, onPick: (String) -> Unit) {
+        val list = project.listAssets(kind).let { assets ->
+            if (kind == com.sengine.engine.core.AssetKind.TEXTURE) assets.filter {
+                val e = it.substringAfterLast('.', "").lowercase()
+                e in listOf("png", "jpg", "jpeg", "webp", "svg", "atlas")
+            } else assets
+        }
+        if (list.isEmpty()) {
+            toast("No ${kind.name.lowercase()} assets yet - import one with the Assets panel")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Pick ${kind.name.lowercase()}")
+            .setItems(list.toTypedArray()) { _, which -> onPick(list[which]); inspector.rebuild() }
+            .setNeutralButton("Clear") { _, _ -> onPick(""); inspector.rebuild() }
+            .show()
+    }
+
+    companion object {
+        private const val REQ_IMPORT = 61
+    }
 }
