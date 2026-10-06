@@ -155,14 +155,16 @@ class EngineSimulationTest {
         val vehicle = car.getAny<Vehicle2D>()!!
         r.frames(90)
         assertEquals("both wheels should be built", 2, vehicle.wheelObjects.size)
-        // Throttle is applied through the vehicle system itself. The template's script also writes
-        // the same field from the input each frame, so hold the accelerator button down: that drives
-        // the vehicle whether or not a script runtime is available.
+        // Drive the way a player does: the template's Driver.js copies the joystick axis into the
+        // throttle every frame, so the throttle is also set directly for runs without a JS runtime
+        // (where the script never executes and cannot read the input).
+        r.engine.input.setJoystick(1f, 0f, true)
         r.engine.input.pressButtonA()
         var commandedSpin = 0f
         var driveForce = 0f
         var carriedLoad = 0f
         r.frames(600) {
+            r.engine.input.setJoystick(1f, 0f, true)
             vehicle.throttle = 1f
             // The tyres are driven to the commanded spin rate (arcade model): throttle > 0 must ask
             // for a clockwise spin (negative), which is what drives the car to the right.
