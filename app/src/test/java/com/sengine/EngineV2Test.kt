@@ -373,4 +373,27 @@ class EngineV2Test {
         assertNotNull(GameObject(1L, "test"))
         Rect2().also { it.set(0f, 0f, 1f, 1f) }
     }
+
+    @Test
+    fun allTemplatesBuildAndHaveValidStartScene() {
+        for (template in com.sengine.project.Templates.all) {
+            val p = tempProject(template.name.replace(" ", ""))
+            template.build(p)
+            assertTrue("template ${template.name} has a description", template.description.isNotBlank())
+            assertTrue("start scene exists for ${template.name}", p.sceneExists(p.startScene))
+            val scene = p.loadScene(p.startScene)
+            assertTrue("template ${template.name} has scene objects", scene.objects.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun editorActivityHasNoDuplicateViewAdditions() {
+        val src = File("app/src/main/java/com/sengine/ui/EditorActivity.kt")
+        if (!src.exists()) return
+        val lines = src.readLines()
+        val addViewCalls = lines.filter { it.contains(".addView(") }
+        val centreAdds = addViewCalls.filter { it.contains("centre.addView(") }
+        val viewArgs = centreAdds.map { it.substringAfter("centre.addView(").substringBefore(",").substringBefore(")").trim() }
+        assertEquals("no duplicates in centre.addView", viewArgs.distinct().size, viewArgs.size)
+    }
 }

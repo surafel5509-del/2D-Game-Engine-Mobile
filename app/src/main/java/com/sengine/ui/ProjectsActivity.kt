@@ -164,11 +164,19 @@ class ProjectsActivity : Activity() {
     }
 
     private fun open(p: Project) {
-        startActivity(Intent(this, EditorActivity::class.java).putExtra("project", p.name))
+        try {
+            startActivity(Intent(this, EditorActivity::class.java).putExtra("project", p.name))
+        } catch (e: Throwable) {
+            toast("Failed to open project: ${e.message}")
+        }
     }
 
     private fun play(p: Project) {
-        startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", p.name))
+        try {
+            startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", p.name))
+        } catch (e: Throwable) {
+            toast("Failed to start game: ${e.message}")
+        }
     }
 
     private fun menu(p: Project) {
@@ -205,18 +213,19 @@ class ProjectsActivity : Activity() {
         box.addView(nameField)
         box.addView(label("Template", 12f, C.DIM).apply { setPadding(0, dp(10), 0, 0) })
         var templateIndex = 0
-        box.addView(choice(names, 0) { templateIndex = it })
-        box.addView(label(Templates.all.firstOrNull()?.description ?: "", 11f, C.DIM).apply {
+        val spinner = choice(names, 0) { templateIndex = it }
+        box.addView(spinner)
+        val templateInfo = label(Templates.all.firstOrNull()?.description ?: "", 11f, C.DIM).apply {
             setPadding(0, dp(8), 0, 0)
-        })
-        val templateInfo = box.getChildAt(box.childCount - 1) as TextView
-        (box.getChildAt(3) as android.widget.Spinner).onItemSelectedListener =
-            object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    templateInfo.text = Templates.all[position].description
-                }
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        box.addView(templateInfo)
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                templateIndex = position
+                templateInfo.text = Templates.all.getOrNull(position)?.description ?: ""
             }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
         AlertDialog.Builder(this)
             .setTitle("New project")
             .setView(box)
@@ -225,9 +234,14 @@ class ProjectsActivity : Activity() {
                 val name = ProjectManager.sanitize(raw)
                 if (name.isBlank()) { toast("Enter a project name"); return@setPositiveButton }
                 if (ProjectManager.exists(this, name)) { toast("Project already exists"); return@setPositiveButton }
-                val project = ProjectManager.create(this, name, Templates.all[templateIndex])
-                refresh()
-                open(project)
+                try {
+                    val template = Templates.all.getOrNull(templateIndex) ?: Templates.all[0]
+                    val project = ProjectManager.create(this, name, template)
+                    refresh()
+                    open(project)
+                } catch (e: Throwable) {
+                    toast("Failed to create project: ${e.message}")
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()

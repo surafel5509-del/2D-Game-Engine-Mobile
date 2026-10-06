@@ -141,7 +141,6 @@ class EditorActivity : Activity(), InspectorPanel.Host, ViewportController.Callb
         centre.addView(zoomRow, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).also {
             it.setMargins(0, dp(54), dp(8), 0)
         })
-        centre.addView(hud, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START))
         hudId = hud
         val bottom = vbox().apply {
             setBackgroundColor(0xCC15181E.toInt())
