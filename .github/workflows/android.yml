@@ -71,6 +71,23 @@ jobs:
           name: SEngine-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
+      - name: Stage prebuilt APKs in the repository
+        if: github.event_name != 'pull_request'
+        run: |
+          set -e
+          mkdir -p prebuilt
+          cp app/build/outputs/apk/debug/app-debug.apk prebuilt/SEngine-debug.apk
+          [ -f SpaceRun-game.apk ] && cp SpaceRun-game.apk prebuilt/SpaceRun-game.apk || true
+          git config user.name "S Engine CI"
+          git config user.email "ci@s-engine.local"
+          git add -f prebuilt
+          if git diff --cached --quiet; then
+            echo "prebuilt APKs already up to date"
+            exit 0
+          fi
+          git commit -m "CI: refresh prebuilt APKs [skip ci]"
+          git push origin HEAD:${GITHUB_REF_NAME}
+
       - name: Publish rolling "latest build" pre-release
         if: github.event_name != 'pull_request'
         continue-on-error: true
