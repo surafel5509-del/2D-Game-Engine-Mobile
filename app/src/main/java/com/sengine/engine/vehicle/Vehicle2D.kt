@@ -25,7 +25,7 @@ class WheelDef(
     val drive: Boolean,
     val steer: Boolean = false,
     val friction: Float = 1.6f,
-    val suspensionFrequency: Float = 2.4f,
+    val suspensionFrequency: Float = 4.5f,
     val suspensionDamping: Float = 0.55f
 )
 
@@ -44,6 +44,16 @@ class VehicleTelemetry {
     var distanceTravelled = 0f
     var airTime = 0f
     var suspensionLoad = 0f
+    /** Torque currently delivered to the driven wheels (Nm); 0 while braking. */
+    var wheelTorque = 0f
+    /** Mean tyre radius of the built wheels (world units). */
+    var wheelRadius = 0.3f
+    /** Fraction of wheels touching the ground (0..1) - drives the available grip. */
+    var grip = 0f
+    /** Traction force currently applied at the contact patches (N). */
+    var driveForce = 0f
+    /** Wheel spin the driver is asking for (degrees/second, negative = clockwise/forward). */
+    var commandedWheelSpin = 0f
 }
 
 /**
@@ -61,31 +71,42 @@ class Vehicle2D : Component() {
      */
     var wheels = "-0.75,-0.35,0.32,drive;0.75,-0.35,0.32,drive"
 
-    /** Peak motor torque applied to driven wheels (Nm). */
-    var maxMotorTorque = 320f
+    /**
+     * Peak motor torque applied to driven wheels (Nm). Keep it close to the torque the tyres can
+     * actually take (grip force * wheel radius) - a torque far above that only spins the chassis
+     * through the motor's reaction, which is what made vehicles undrivable before.
+     */
+    var maxMotorTorque = 26f
     /** Maximum wheel spin (degrees/second) - the vehicle's top speed. */
     var maxWheelSpeed = 1100f
     /** Torque reduction as speed rises (0 = constant torque, 1 = strong falloff). */
     var torqueFalloff = 0.55f
     /** Reverse gear torque multiplier. */
     var reverseFactor = 0.6f
-    /** Braking torque. */
-    var brakeTorque = 260f
-    /** Rolling resistance when there is no input. */
-    var engineBrakeTorque = 40f
+    /** Braking torque (Nm). */
+    var brakeTorque = 18f
+    /** Rolling resistance when there is no input (Nm). */
+    var engineBrakeTorque = 3f
     /** Extra grip multiplier applied to driven wheels under throttle. */
     var traction = 1.15f
     /** Grip multiplier when the wheel is spinning fast (0 = no slip, 1 = realistic slip). */
     var slipInfluence = 0.35f
-    /** Torque used to rotate the chassis while airborne. */
-    var airControlTorque = 260f
+    /** Torque used to rotate the chassis while airborne (Nm). */
+    var airControlTorque = 8f
     /** Automatic stabilization towards upright while airborne (0 = off). */
     var stabilization = 0.35f
-    /** Extra torque that helps recover from a flip (Hill Climb style). */
-    var flipRecoveryTorque = 420f
+    /** Extra torque that helps recover from a flip (Hill Climb style, Nm). */
+    var flipRecoveryTorque = 14f
     var flipRecoveryDelay = 0.6f
     /** Downward force applied at high speed to keep the car planted. */
     var downforce = 0.35f
+    /**
+     * Drives the tyres by commanding their spin rate (the standard arcade 2D vehicle model). With
+     * this off, the drive runs physically through the wheel joint motors, which is more realistic
+     * but only works with carefully tuned torque - too much flips the chassis, too little spins the
+     * tyres without ever moving the car.
+     */
+    var wheelSpinControl = false
 
     // ---- fuel
     var useFuel = false
@@ -134,6 +155,8 @@ class Vehicle2D : Component() {
         Prop.F("Engine Brake", { engineBrakeTorque }, { engineBrakeTorque = it.coerceAtLeast(0f) }, 5f, 0f, 100000f),
         Prop.F("Traction", { traction }, { traction = it.coerceIn(0.1f, 4f) }, 0.05f, 0.1f, 4f),
         Prop.F("Slip Influence", { slipInfluence }, { slipInfluence = it.coerceIn(0f, 1f) }, 0.05f, 0f, 1f),
+        Prop.B("Wheel Spin Control", { wheelSpinControl }, { wheelSpinControl = it },
+            "Drive by commanding the tyre spin rate (arcade). Off = drive through the wheel joint motors."),
         Prop.F("Air Control Torque", { airControlTorque }, { airControlTorque = it.coerceAtLeast(0f) }, 5f, 0f, 100000f),
         Prop.F("Stabilization", { stabilization }, { stabilization = it.coerceIn(0f, 2f) }, 0.05f, 0f, 2f),
         Prop.F("Flip Recovery Torque", { flipRecoveryTorque }, { flipRecoveryTorque = it.coerceAtLeast(0f) }, 5f, 0f, 100000f),
@@ -172,13 +195,14 @@ class Vehicle2D : Component() {
             val y = parts[1].toFloatOrNull() ?: continue
             val r = parts[2].toFloatOrNull() ?: continue
             var drive = false; var steer = false
-            var friction = 1.6f; var freq = 2.4f; var damp = 0.55f
+            var friction = 1.6f; var freq = 4.5f; var damp = 0.55f
             for (i in 3 until parts.size) {
                 val p = parts[i].lowercase()
                 when {
                     p == "drive" || p == "d" -> drive = true
                     p == "steer" || p == "s" -> steer = true
-                    p.startsWith("f=") -> friction = p.substringAfter('=').toFloatOrNull() ?: friction
+                    p.startsWith("friction=") || p.startsWith("mu=") || p.startsWith("f=") ->
+                        friction = p.substringAfter('=').toFloatOrNull() ?: friction
                     p.startsWith("freq=") -> freq = p.substringAfter('=').toFloatOrNull() ?: freq
                     p.startsWith("damp=") -> damp = p.substringAfter('=').toFloatOrNull() ?: damp
                     p == "front" -> drive = true
@@ -203,16 +227,27 @@ class Vehicle2D : Component() {
         if (defs.isEmpty()) return
         val holder = scene.create("${go.name}_wheels", go)
         holder.tag = "Vehicle"
+        // Wheel offsets are authored in world units from the chassis origin, so a scaled chassis must
+        // not stretch them: divide out the inherited scale and neutralise it on the wheel itself. A
+        // scaled chassis used to pull its wheels up until the body rode on its belly and the tyres
+        // could no longer drive anything.
+        val parentWorld = go.computeWorld()
+        val invScaleX = if (abs(parentWorld.scaleX) < 1e-4f) 1f else 1f / parentWorld.scaleX
+        val invScaleY = if (abs(parentWorld.scaleY) < 1e-4f) 1f else 1f / parentWorld.scaleY
         for ((index, d) in defs.withIndex()) {
             val wheel = scene.create("Wheel${index}", holder)
-            wheel.x = d.offsetX
-            wheel.y = d.offsetY
+            wheel.x = d.offsetX * invScaleX
+            wheel.y = d.offsetY * invScaleY
+            wheel.scaleX = invScaleX
+            wheel.scaleY = invScaleY
             wheel.tag = "Wheel"
             val wrb = Rigidbody2D()
             wrb.bodyType = 0
             wrb.mass = 0.35f
             wrb.angularDamping = 0.02f
-            wrb.continuous = true
+            // A wheel lives in permanent contact with the ground, so it is not a bullet: running
+            // continuous collision detection on it fights the suspension every frame.
+            wrb.continuous = false
             wheel.add(wrb)
             val wcol = Collider2D()
             wcol.shape = Collider2D.SHAPE_CIRCLE
@@ -239,8 +274,10 @@ class Vehicle2D : Component() {
             joint.enableMotor = d.drive
             joint.maxMotorTorque = maxMotorTorque / max(1f, defs.count { it.drive }.toFloat())
             joint.enableLimit = true
+            // The wheel must be able to extend by the static sag (gravity / omega^2) plus room for
+            // bumps, and compress until the chassis would touch the tyre.
             joint.lowerTranslation = -d.radius * 0.75f
-            joint.upperTranslation = d.radius * 0.35f
+            joint.upperTranslation = d.radius * 0.5f
             joint.anchorX = d.offsetX
             joint.anchorY = d.offsetY
             go.add(joint)
@@ -316,40 +353,97 @@ class Vehicle2D : Component() {
         }
 
         // ---- engine: motor speed from throttle with torque falloff
-        val maxSpin = maxWheelSpeed
-        val rpmRatio = M.clamp01(abs(chassis!!.vx) / max(0.001f, maxSpin * 0.02f))
+        // Engine load is read from the driven wheels' actual spin, so the falloff works in the
+        // same unit as maxWheelSpeed (degrees/second) instead of mixing degrees with metres.
+        val maxSpin = maxWheelSpeed.coerceAtLeast(1f)
+        var spinSum = 0f
+        for (i in wheelBodies.indices) spinSum += abs(wheelBodies[i].angularVelocity) * 57.29578f
+        val wheelSpinDeg = if (wheelBodies.isEmpty()) 0f else spinSum / wheelBodies.size
+        val rpmRatio = M.clamp01(wheelSpinDeg / maxSpin)
         telemetry.engineRpm = rpmRatio * 8000f
         val torqueFactor = if (useFuel && telemetry.fuel <= 0f) 0f else (1f - torqueFalloff * rpmRatio)
         val reverse = throttle < 0f
         val effectiveTorque = maxMotorTorque * torqueFactor * (if (reverse) reverseFactor else 1f)
 
+        // ---- drive, brakes and engine braking
+        // The drive torque of a wheel becomes a traction force at its contact patch plus a pitching
+        // reaction around the centre of mass. Applying that one force AT THE CONTACT PATCH gives both
+        // effects exactly (the offset below the centre of mass is the wheelie torque), which is far
+        // more predictable than relying on the motor/reaction pair of the joint through the solver:
+        // the driven wheel is left to roll freely, so tyre friction cannot fight the drive torque.
+        val driveCount = max(1f, driven.count { it }.toFloat())
+        val groundRatio = if (wheelBodies.isEmpty()) 0f else groundedWheels.toFloat() / wheelBodies.size
+        val gripThrust = maxMotorTorque * 4f   // full-throttle thrust ceiling before grip loss
+        var driveThrust = 0f
+        if (abs(throttle) > 0.01f && !brake && !handbrake) {
+            val torque = effectiveTorque
+            val radius = averageWheelRadius()
+            if (radius > 1e-4f) {
+                driveThrust = (torque / radius).coerceAtMost(gripThrust) * groundRatio * M.sign(throttle)
+            }
+        }
+        var braking = false
         for (i in wheelJoints.indices) {
             val joint = wheelJoints[i]
             val isDriven = driven.getOrElse(i) { false }
             if (!isDriven) continue
-            joint.maxMotorTorque = maxMotorTorque / max(1f, driven.count { it }.toFloat()) * torqueFactor
             if (brake) {
                 joint.enableMotor = true
                 joint.motorSpeed = 0f
-                joint.maxMotorTorque = brakeTorque
+                joint.maxMotorTorque = brakeTorque / driveCount
+                braking = true
             } else if (handbrake) {
                 joint.enableMotor = true
                 joint.motorSpeed = 0f
-                joint.maxMotorTorque = brakeTorque * 1.6f
+                joint.maxMotorTorque = brakeTorque * 1.6f / driveCount
+                braking = true
             } else if (abs(throttle) > 0.01f) {
-                joint.enableMotor = true
-                // Hill Climb style: torque is strong at low wheel speed and falls off at high speed
-                // +x movement needs a clockwise (negative) wheel spin, so throttle > 0 must drive
-                // the motor negative - otherwise the vehicle steers inverted.
-                val targetSpin = -throttle * maxSpin
-                joint.motorSpeed = targetSpin
-                joint.maxMotorTorque = effectiveTorque
+                // Driving: the wheel spin is commanded directly (see the servo below) instead of
+                // through the joint motor, because a motor torque small enough not to spin the
+                // chassis through its reaction can never break tyre traction either.
+                joint.enableMotor = false
+                joint.motorSpeed = 0f
+                joint.maxMotorTorque = 0f
             } else {
                 joint.enableMotor = true
                 joint.motorSpeed = 0f
-                joint.maxMotorTorque = engineBrakeTorque
+                joint.maxMotorTorque = engineBrakeTorque / driveCount
             }
         }
+        // Traction: the driven tyres are spun to the commanded rate and the tyre friction under that
+        // spin IS the drive force - it pushes the car, it makes the wheels break traction on loose
+        // ground and, acting one wheel radius below the centre of mass, it pitches the car up on
+        // launch. This is the arcade vehicle model used by 2D car games; it stays stable because the
+        // spin servo cannot apply a reaction torque to the chassis, while a joint motor strong enough
+        // to drive the car always could (and would flip it over).
+        telemetry.commandedWheelSpin = 0f
+        if (groundRatio > 0f && abs(throttle) > 0.01f && !brake && !handbrake) {
+            telemetry.commandedWheelSpin = -throttle * maxSpin
+        }
+        if (driveThrust != 0f) {
+            // The traction force goes on the chassis, one wheel radius below its centre of mass (that
+            // offset is the launch wheelie). Putting it on the tyre instead looks equivalent, but the
+            // tyre is held by the suspension's side constraint, which absorbs the impulse.
+            val radius = averageWheelRadius()
+            chassis!!.applyForce(driveThrust, 0f)
+            chassis!!.applyTorque(driveThrust * radius)
+        }
+        if (wheelSpinControl && driveThrust != 0f) {
+            // Visual/arcade tyre spin: the wheels are shown turning at the commanded rate while the
+            // force above does the driving. With this off the tyres are left to the contact solver.
+            val targetSpin = Math.toRadians(telemetry.commandedWheelSpin.toDouble()).toFloat()
+            for (i in wheelBodies.indices) {
+                if (!driven.getOrElse(i) { false }) continue
+                val wb = wheelBodies[i]
+                wb.angularVelocity = targetSpin
+                wb.wake()
+            }
+        }
+        telemetry.wheelTorque = effectiveTorque * abs(throttle) * (if (braking) 0f else 1f)
+        telemetry.braking = braking
+        telemetry.wheelRadius = averageWheelRadius()
+        telemetry.grip = groundRatio
+        telemetry.driveForce = driveThrust
 
         // ---- traction: modulate wheel friction with throttle and slip
         for (i in wheelBodies.indices) {
@@ -400,6 +494,14 @@ class Vehicle2D : Component() {
             val spr = go.get<com.sengine.engine.core.SpriteRenderer>()
             if (spr != null && abs(chassis!!.vx) > 0.5f) spr.flipX = chassis!!.vx < 0f
         }
+    }
+
+    /** Mean tyre radius of the built wheels (used to turn motor torque into thrust). */
+    private fun averageWheelRadius(): Float {
+        if (wheelBodies.isEmpty()) return 0f
+        var sum = 0f
+        for (b in wheelBodies) sum += (b.shape as? com.sengine.engine.physics.CircleShape)?.radius ?: 0.3f
+        return sum / wheelBodies.size
     }
 
     private fun refreshHandles(world: PhysicsWorld2D) {
