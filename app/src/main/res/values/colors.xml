@@ -3,5 +3,6 @@
     <color name="panel">#FF2B2D31</color>
     <color name="accent">#FF4C8DFF</color>
     <color name="text">#FFE6E6E6</color>
+    <color name="dim">#FFA8ADB8</color>
     <color name="ic_bg">#FF151A22</color>
 </resources>
