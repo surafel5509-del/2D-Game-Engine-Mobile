@@ -434,6 +434,9 @@ function onCollision(other) {
         p.startScene = "Main"
     }
 
+    /** Height field of the hill climb template's rolling terrain. */
+    private fun terrainY(x: Float) = (-1.0 + Math.sin(x * 0.13) * 0.9 + Math.sin(x * 0.05) * 0.6).toFloat()
+
     // ---------------------------------------------------------------- vehicle (Hill Climb style)
     private val vehicle = Template("Hill Climb Vehicle", "Two-wheel vehicle physics with suspension, terrain and flip recovery.") { p ->
         installAssets(p, "Dirt", "Metal Plate", "Coin Pickup", "Jump", "Explosion", "Soft Particle", "Spark")
@@ -443,6 +446,9 @@ function update(dt) {
     self.throttle = input.axisX;
     if (input.aDown) self.throttle = 1;
     if (input.b) self.throttle = -1;
+
+    // Fell off the world: restart the run.
+    if (self.y < -40) scene.reload();
 
     if (self.airborne) {
         // rotate the chassis in the air so the player can save a bad landing
@@ -458,17 +464,29 @@ function update(dt) {
         cam.getAny<Camera2D>()!!.deadZoneY = 2.5f
         obj(s, "SpeedLabel", 0f, 3.6f, parent = cam).text("0 km/h", 0.6f).inFrontOfCamera()
 
-        // rolling terrain built from static boxes: flat start, hill, dip, ramp
-        var prevY = -1f
+        // Rolling terrain built as a chain of rotated ramps whose top faces form one continuous
+        // polyline: no vertical steps for the tyres to climb, and the gradients stay under 10 degrees
+        // so a two wheel drive buggy can hold traction (Hill Climb style terrain).
+        val step = 1.2f
         var x = -30f
-        while (x < 60f) {
-            val y = (-1.0 + Math.sin(x * 0.16) * 1.6 + Math.sin(x * 0.05) * 1.2).toFloat()
-            val h = (y - prevY).coerceIn(-2f, 2f)
-            val slope = (Math.toDegrees(Math.atan2(h.toDouble(), 1.2)) * 0.5).toFloat()
-            obj(s, "Terrain", x, y - 1.5f, 1.2f, 3f + Math.abs(h))
+        var y0 = terrainY(x)
+        while (x < 150f) {
+            val x1 = x + step
+            val y1 = terrainY(x1)
+            val midX = (x + x1) * 0.5f
+            val midY = (y0 + y1) * 0.5f
+            val angle = Math.toDegrees(Math.atan2((y1 - y0).toDouble(), step.toDouble())).toFloat()
+            val rad = Math.toRadians(angle.toDouble())
+            val h = 10f
+            // The top face of a rotated box sits half its height along its local up axis, so shift the
+            // centre down by that much to land the face exactly on the segment midpoint.
+            val cx = (midX + Math.sin(rad).toFloat() * (h * 0.5f))
+            val cy = (midY - Math.cos(rad).toFloat() * (h * 0.5f))
+            obj(s, "Terrain", cx, cy, step + 0.1f, h)
                 .sprite(0xFF6D4C41).box(friction = 0.9f)
-                .also { it.rotation = slope }
-            prevY = y; x += 1.2f
+                .also { it.rotation = angle }
+            x = x1
+            y0 = y1
         }
 
         for (k in 0 until 5) {
@@ -478,12 +496,19 @@ function update(dt) {
             coin.tag = "Coin"; coin.order = 5
         }
 
-        val car = obj(s, "Vehicle", 0f, 1.5f, 1.5f, 0.8f).sprite(0xFFE53935).box(friction = 1.1f)
-            .body(mass = 2.2f).script("Driver.js", "airControl=55")
+        val car = obj(s, "Vehicle", 0f, 1.5f).sprite(0xFFE53935)
+            .box(friction = 1.1f).body(mass = 2.2f).script("Driver.js", "airControl=55")
         car.tag = "Player"; car.order = 10
+        // Body 1.5 x 0.6 with the tyres hanging 0.45 below it: enough ground clearance that the
+        // chassis never scrapes the terrain (a dragging belly kills traction instantly) while the
+        // centre of mass stays low enough to keep the buggy planted.
+        car.getAny<SpriteRenderer>()?.let { it.width = 1.5f; it.height = 0.6f }
+        car.getAny<Collider2D>()?.let { it.width = 1.5f; it.height = 0.6f }
         car.add(Vehicle2D().also {
-            it.wheels = "-0.65,-0.3,0.32,drive,steer;0.65,-0.3,0.32,drive;"
-            it.maxMotorTorque = 420f
+            it.wheels = "-0.65,-0.45,0.32,drive,steer;0.65,-0.45,0.32,drive"
+            // Wide tyres on a 2.4 kg buggy: enough torque to spin the wheels on a slope (tail-out
+            // Hill Climb launches) without the reaction torque flipping the chassis over.
+            it.maxMotorTorque = 30f
             it.traction = 1.25f
             it.stabilization = 0.4f
             it.useFuel = true
